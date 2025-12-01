@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Task Tracker</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/src/css/style.css">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✅</text></svg>">
+</head>
+<body>
+    <!-- Страница авторизации -->
+    <div id="auth-page" class="page active">
+        <div class="auth-container">
+            <h1><i class="fas fa-tasks"></i> Task Tracker</h1>
+            <p class="subtitle">Real-time collaboration tool</p>
+            
+            <div class="auth-tabs">
+                <button class="tab-btn active" data-tab="login">Вход</button>
+                <button class="tab-btn" data-tab="register">Регистрация</button>
+            </div>
+            
+            <form id="login-form" class="auth-form active">
+                <input type="text" id="login-username" placeholder="Логин" required>
+                <input type="password" id="login-password" placeholder="Пароль" required>
+                <button type="submit" class="btn-primary">
+                    <i class="fas fa-sign-in-alt"></i> Войти
+                </button>
+            </form>
+            
+            <form id="register-form" class="auth-form">
+                <input type="text" id="register-username" placeholder="Логин" required>
+                <input type="password" id="register-password" placeholder="Пароль" required>
+                <button type="submit" class="btn-primary">
+                    <i class="fas fa-user-plus"></i> Зарегистрироваться
+                </button>
+            </form>
+            
+            <div class="connection-status">
+                <span id="connection-status" class="status-offline">
+                    <i class="fas fa-circle"></i> Не подключен
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Основной интерфейс -->
+    <div id="main-page" class="page">
+        <!-- Хедер -->
+        <header class="header">
+            <div class="header-left">
+                <h1><i class="fas fa-tasks"></i> Task Tracker</h1>
+                <div class="user-info">
+                    <span class="username" id="current-user">Гость</span>
+                    <button id="logout-btn" class="btn-small">
+                        <i class="fas fa-sign-out-alt"></i> Выйти
+                    </button>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <div class="online-status">
+                    <i class="fas fa-users"></i>
+                    <span id="online-count">1</span> онлайн
+                </div>
+                <button id="profile-search-btn" class="btn-primary">
+                    <i class="fas fa-search"></i> Найти профиль
+                </button>
+            </div>
+        </header>
+        
+        <!-- Основной контент -->
+        <main class="main-content">
+            <!-- Форма создания задачи -->
+            <div class="create-task-section">
+                <form id="create-task-form">
+                    <input type="text" id="task-title" placeholder="Название задачи" required>
+                    <textarea id="task-description" placeholder="Описание задачи"></textarea>
+                    <input type="text" id="task-share" placeholder="Поделиться с (логины через запятую)">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-plus"></i> Создать задачу
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Доска задач -->
+            <div class="tasks-board">
+                <!-- Колонка To Do -->
+                <div class="task-column" id="todo-column">
+                    <div class="column-header">
+                        <h3><i class="fas fa-clock"></i> To Do</h3>
+                        <span class="task-count" id="todo-count">0</span>
+                    </div>
+                    <div class="task-list" data-status="todo" id="todo-list">
+                        <!-- Задачи будут здесь -->
+                    </div>
+                </div>
+                
+                <!-- Колонка In Progress -->
+                <div class="task-column" id="progress-column">
+                    <div class="column-header">
+                        <h3><i class="fas fa-spinner"></i> In Progress</h3>
+                        <span class="task-count" id="progress-count">0</span>
+                    </div>
+                    <div class="task-list" data-status="inProgress" id="progress-list">
+                        <!-- Задачи будут здесь -->
+                    </div>
+                </div>
+                
+                <!-- Колонка Done -->
+                <div class="task-column" id="done-column">
+                    <div class="column-header">
+                        <h3><i class="fas fa-check-circle"></i> Done</h3>
+                        <span class="task-count" id="done-count">0</span>
+                    </div>
+                    <div class="task-list" data-status="done" id="done-list">
+                        <!-- Задачи будут здесь -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Лента активностей -->
+            <div class="activity-section">
+                <h3><i class="fas fa-history"></i> Лента активностей</h3>
+                <div class="activity-list" id="activity-list">
+                    <!-- Активности будут здесь -->
+                </div>
+            </div>
+        </main>
+        
+        <!-- Модальное окно профиля -->
+        <div id="profile-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal">&times;</span>
+                <h2 id="profile-username">Профиль</h2>
+                <div class="profile-info">
+                    <div class="stat">
+                        <i class="fas fa-check-circle"></i>
+                        <span id="profile-tasks-completed">0</span>
+                        <small>выполнено задач</small>
+                    </div>
+                    <div class="stat">
+                        <i class="fas fa-tasks"></i>
+                        <span id="profile-total-tasks">0</span>
+                        <small>всего задач</small>
+                    </div>
+                    <div class="stat">
+                        <i class="fas fa-users"></i>
+                        <span id="profile-shared-tasks">0</span>
+                        <small>общих задач</small>
+                    </div>
+                </div>
+                <div id="profile-tasks-list">
+                    <!-- Задачи пользователя -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Модальное окно поиска профиля -->
+        <div id="search-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal">&times;</span>
+                <h2><i class="fas fa-search"></i> Поиск профиля</h2>
+                <input type="text" id="search-username" placeholder="Введите логин пользователя">
+                <button id="search-btn" class="btn-primary">Найти</button>
+                <div id="search-results"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Уведомления -->
+    <div id="notification-container"></div>
+    
+    <!-- Скрипты -->
+    <script type="module" src="/src/index.js"></script>
+</body>
+</html>
