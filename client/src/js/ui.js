@@ -94,52 +94,20 @@ class UIManager {
     updateTaskCounts(tasks) {
         const counts = {
             todo: 0,
-            inProgress: 0,
             done: 0
         };
 
         tasks.forEach(task => {
-            if (task.status && counts[task.status] !== undefined) {
-                counts[task.status]++;
+            if (task.status === 'done') {
+                counts.done++;
+            } else {
+                counts.todo++; // todo и inProgress вместе
             }
         });
 
         // Обновляем счетчики в интерфейсе
         document.getElementById('todo-count').textContent = counts.todo;
-        document.getElementById('progress-count').textContent = counts.inProgress;
         document.getElementById('done-count').textContent = counts.done;
-    }
-
-    addActivityLog(user, action, details = '') {
-        const activityList = document.getElementById('activity-list');
-        if (!activityList) return;
-
-        const activityItem = document.createElement('div');
-        activityItem.className = 'activity-item';
-        
-        const now = new Date();
-        const timeString = now.toLocaleTimeString('ru-RU', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        activityItem.innerHTML = `
-            <div>
-                <span class="activity-user">${this.escapeHtml(user)}</span>
-                <span class="activity-action">${action}</span>
-                ${details ? `<span>${this.escapeHtml(details)}</span>` : ''}
-            </div>
-            <div class="activity-time">${timeString}</div>
-        `;
-
-        // Добавляем в начало
-        activityList.insertBefore(activityItem, activityList.firstChild);
-
-        // Ограничиваем количество записей (последние 20)
-        const items = activityList.querySelectorAll('.activity-item');
-        if (items.length > 20) {
-            items[items.length - 1].remove();
-        }
     }
 
     escapeHtml(text) {
@@ -214,8 +182,4 @@ export function showNotification(message, type) {
 
 export function updateTaskCounts(tasks) {
     uiManager.updateTaskCounts(tasks);
-}
-
-export function addActivityLog(user, action, details) {
-    uiManager.addActivityLog(user, action, details);
 }

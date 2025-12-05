@@ -39,6 +39,14 @@ class AuthManager {
         socketManager.on('authSuccess', (user) => {
             this.handleAuthSuccess(user);
         });
+        
+        // Подписка на подтверждение от сервера
+        socketManager.on('user:authenticated', (data) => {
+            console.log('🔐 Получено подтверждение аутентификации:', data);
+            if (data && data.user) {
+                this.handleAuthSuccess(data.user);
+            }
+        });
     }
 
     switchTab(tab) {
@@ -54,7 +62,7 @@ class AuthManager {
     }
 
     async login() {
-        const login = document.getElementById('login-username').value;
+        const login = document.getElementById('login-username').value.trim();
         const password = document.getElementById('login-password').value;
 
         if (!login || !password) {
@@ -62,18 +70,34 @@ class AuthManager {
             return;
         }
 
+        console.log('🔐 Попытка входа:', login);
+        
         socketManager.emit('user:login', { login, password }, (response) => {
-            if (response.success) {
-                socketManager.emitEvent('authSuccess', response.user);
+            console.log('📨 Ответ на вход:', response);
+            
+            if (response && response.success) {
                 showNotification('Успешный вход!', 'success');
+                
+                // Сохраняем данные пользователя
+                this.currentUser = response.user;
+                this.isAuthenticated = true;
+                
+                // Сохраняем в localStorage
+                localStorage.setItem('currentUser', JSON.stringify(response.user));
+                
+                // Обновляем интерфейс
+                this.updateUIAfterLogin(response.user);
+                
             } else {
-                showNotification(response.error || 'Ошибка входа', 'error');
+                const errorMsg = response?.error || 'Ошибка входа';
+                console.error('❌ Ошибка входа:', errorMsg);
+                showNotification(errorMsg, 'error');
             }
         });
     }
 
     async register() {
-        const login = document.getElementById('register-username').value;
+        const login = document.getElementById('register-username').value.trim();
         const password = document.getElementById('register-password').value;
 
         if (!login || !password) {
@@ -86,19 +110,33 @@ class AuthManager {
             return;
         }
 
+        console.log('📝 Попытка регистрации:', login);
+        
         socketManager.emit('user:register', { login, password }, (response) => {
-            if (response.success) {
+            console.log('📨 Ответ на регистрацию:', response);
+            
+            if (response && response.success) {
                 showNotification('Регистрация успешна! Теперь войдите', 'success');
                 this.switchTab('login');
                 document.getElementById('login-username').value = login;
                 document.getElementById('login-password').value = password;
+                
+                // Автоматически входим после регистрации
+                setTimeout(() => {
+                    this.login();
+                }, 500);
+                
             } else {
-                showNotification(response.error || 'Ошибка регистрации', 'error');
+                const errorMsg = response?.error || 'Ошибка регистрации';
+                console.error('❌ Ошибка регистрации:', errorMsg);
+                showNotification(errorMsg, 'error');
             }
         });
     }
 
     handleAuthSuccess(user) {
+        console.log('✅ Успешная аутентификация:', user);
+        
         this.currentUser = user;
         this.isAuthenticated = true;
 
@@ -106,6 +144,11 @@ class AuthManager {
         localStorage.setItem('currentUser', JSON.stringify(user));
 
         // Обновляем интерфейс
+        this.updateUIAfterLogin(user);
+    }
+
+    updateUIAfterLogin(user) {
+        // Обновляем имя пользователя
         document.getElementById('current-user').textContent = user.login;
         
         // Переключаем страницы
@@ -120,6 +163,13 @@ class AuthManager {
     }
 
     logout() {
+        console.log('🚪 Выход из системы');
+        
+        // Отправляем на сервер событие выхода
+        socketManager.emit('user:logout', {}, (response) => {
+            console.log('Ответ на выход:', response);
+        });
+        
         this.currentUser = null;
         this.isAuthenticated = false;
         localStorage.removeItem('currentUser');
@@ -127,6 +177,9 @@ class AuthManager {
         // Переключаем страницы
         document.getElementById('main-page').classList.remove('active');
         document.getElementById('auth-page').classList.add('active');
+        
+        // Переключаем на вкладку входа
+        this.switchTab('login');
 
         // Сбрасываем формы
         document.getElementById('login-username').value = '';
@@ -153,19 +206,23 @@ class AuthManager {
                 const user = JSON.parse(savedUser);
                 // Проверяем что есть минимальные данные
                 if (user && user.login) {
-                    // Автоматически входим
-                    socketManager.emit('user:login', { 
-                        login: user.login, 
-                        password: '123' // упрощенная схема
-                    }, (response) => {
-                        if (response.success) {
-                            this.handleAuthSuccess(response.user);
-                        } else {
-                            localStorage.removeItem('currentUser');
-                        }
-                    });
+                    console.log('🔄 Восстановление сессии для:', user.login);
+                    
+                    // Показываем страницу авторизации с заполненным логином
+                    document.getElementById('login-username').value = user.login;
+                    document.getElementById('auth-page').classList.add('active');
+                    
+                    // Показываем уведомление
+                    showNotification('Войдите снова для восстановления сессии', 'info');
+                    
+                    // Можно попробовать автоматический вход
+                    // Но лучше запросить пароль у пользователя
+                    
+                } else {
+                    localStorage.removeItem('currentUser');
                 }
             } catch (e) {
+                console.error('Ошибка при восстановлении сессии:', e);
                 localStorage.removeItem('currentUser');
             }
         }

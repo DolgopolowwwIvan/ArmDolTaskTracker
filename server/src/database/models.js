@@ -115,12 +115,18 @@ const Task = {
 
   // Поделиться задачей с пользователями
   async share(taskId, userIds) {
-    const values = userIds.map(userId => `(${userId}, ${taskId})`).join(',');
-    await db.query(
-      `INSERT INTO user_tasks (user_id, task_id) 
-       VALUES ${values} 
-       ON CONFLICT (user_id, task_id) DO NOTHING`
-    );
+    for (const userId of userIds) {
+      try {
+        await db.query(
+          `INSERT INTO user_tasks (user_id, task_id) 
+           VALUES ($1, $2) 
+           ON CONFLICT (user_id, task_id) DO NOTHING`,
+          [userId, taskId]
+        );
+      } catch (error) {
+        console.error(`Ошибка добавления пользователя ${userId} к задаче ${taskId}:`, error);
+      }
+    }
   },
 
   // Обновить статус задачи

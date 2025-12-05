@@ -98,10 +98,9 @@ class DragDropManager {
             return;
         }
 
-        // Статус для отправки на сервер
+        // Только два статуса: todo и done
         const statusMap = {
             'todo': 'todo',
-            'inProgress': 'inProgress',
             'done': 'done'
         };
 
@@ -112,16 +111,14 @@ class DragDropManager {
         }
 
         socketManager.emit('task:update', {
-            taskId,
-            status: serverStatus,
-            password: '123' // упрощенная схема
+            taskId: Number(taskId),
+            status: serverStatus
         }, (response) => {
-            if (response.success) {
+            if (response && response.success) {
                 showNotification('Статус задачи обновлен', 'success');
             } else {
-                showNotification(response.error || 'Ошибка обновления задачи', 'error');
-                // Возвращаем задачу на место в случае ошибки
-                // TODO: Реализовать rollback
+                const errorMsg = response?.error || 'Ошибка обновления задачи';
+                showNotification(errorMsg, 'error');
             }
         });
     }
@@ -131,7 +128,7 @@ class DragDropManager {
         taskElement.dataset.status = newStatus;
         
         // Находим новый список
-        const columnId = `${newStatus.toLowerCase().replace('progress', 'progress')}-list`;
+        const columnId = newStatus === 'done' ? 'done-list' : 'todo-list';
         const newList = document.getElementById(columnId);
         
         if (newList) {
@@ -146,21 +143,24 @@ class DragDropManager {
     }
 
     updateColumnCounts() {
-        const columns = {
-            'todo': document.getElementById('todo-list'),
-            'inProgress': document.getElementById('progress-list'),
-            'done': document.getElementById('done-list')
-        };
-
-        Object.entries(columns).forEach(([status, list]) => {
-            if (list) {
-                const count = list.querySelectorAll('.task-card').length;
-                const countElement = document.getElementById(`${status}-count`);
-                if (countElement) {
-                    countElement.textContent = count;
-                }
+        const todoList = document.getElementById('todo-list');
+        const doneList = document.getElementById('done-list');
+        
+        if (todoList) {
+            const todoCount = todoList.querySelectorAll('.task-card').length;
+            const todoCountElement = document.getElementById('todo-count');
+            if (todoCountElement) {
+                todoCountElement.textContent = todoCount;
             }
-        });
+        }
+        
+        if (doneList) {
+            const doneCount = doneList.querySelectorAll('.task-card').length;
+            const doneCountElement = document.getElementById('done-count');
+            if (doneCountElement) {
+                doneCountElement.textContent = doneCount;
+            }
+        }
     }
 
     // Инициализация после загрузки DOM
@@ -168,6 +168,7 @@ class DragDropManager {
         // Ждем пока все задачи загрузятся
         setTimeout(() => {
             this.updateColumnCounts();
+            console.log('✅ Drag&Drop инициализирован (2 колонки)');
         }, 1000);
     }
 }

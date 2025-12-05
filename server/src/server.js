@@ -6,9 +6,14 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const { PORT } = require('./config/constants');
+const path = require('path');
+
+// Импорт с правильными путями
 const { initDatabase } = require('./database/models');
 const initializeSocketHandlers = require('./socket-handlers/index');
+
+// Константы определены локально
+const PORT = process.env.PORT || 3000;
 
 // Инициализация базы данных
 initDatabase();

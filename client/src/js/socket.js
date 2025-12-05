@@ -5,11 +5,13 @@ class SocketManager {
         this.socket = null;
         this.listeners = new Map();
         this.connected = false;
+        this.user = null;
     }
 
     connect() {
         if (this.socket) return;
 
+        console.log('🔌 Подключение к WebSocket...');
         this.socket = io('ws://localhost:3000', {
             transports: ['websocket'],
             reconnection: true,
@@ -26,15 +28,35 @@ class SocketManager {
             this.connected = true;
             this.emitEvent('connected');
             this.updateConnectionStatus(true);
+            
+            // Проверяем, есть ли сохраненная сессия
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser) {
+                try {
+                    const user = JSON.parse(savedUser);
+                    if (user && user.login) {
+                        // Отправляем токен или запрос на восстановление сессии
+                        this.emit('user:restore', { login: user.login });
+                    }
+                } catch (e) {
+                    console.error('Ошибка при восстановлении:', e);
+                }
+            }
         });
 
-        this.socket.on('disconnect', () => {
-            console.log('❌ WebSocket отключен');
+        this.socket.on('disconnect', (reason) => {
+            console.log('❌ WebSocket отключен:', reason);
             this.connected = false;
             this.emitEvent('disconnected');
             this.updateConnectionStatus(false);
         });
 
+        this.socket.on('connect_error', (error) => {
+            console.error('❌ Ошибка подключения WebSocket:', error.message);
+            this.showNotification(`Ошибка подключения: ${error.message}`, 'error');
+        });
+
+        // Обработка событий задач
         this.socket.on('sync:update', (data) => {
             console.log('🔄 Real-time обновление:', data);
             this.emitEvent('sync', data);
@@ -57,6 +79,25 @@ class SocketManager {
             this.emitEvent('taskDeleted', data);
         });
 
+        // События авторизации
+        this.socket.on('user:authenticated', (data) => {
+            console.log('🔐 Пользователь аутентифицирован:', data);
+            this.user = data.user;
+            this.emitEvent('authSuccess', data.user);
+            this.showNotification(`Добро пожаловать, ${data.user.login}!`, 'success');
+        });
+
+        this.socket.on('user:auth_error', (error) => {
+            console.error('❌ Ошибка аутентификации:', error);
+            this.showNotification(`Ошибка: ${error.message || error}`, 'error');
+            this.emitEvent('authError', error);
+        });
+
+        this.socket.on('user:registered', (data) => {
+            console.log('✅ Пользователь зарегистрирован:', data);
+            this.emitEvent('userRegistered', data);
+        });
+
         this.socket.on('error', (error) => {
             console.error('❌ WebSocket ошибка:', error);
             this.showNotification(`Ошибка: ${error.message || error}`, 'error');
@@ -74,20 +115,31 @@ class SocketManager {
             this.updateOnlineCount(data.onlineCount);
         });
 
-        // ✅ ВАЖНО: Слушаем подтверждение аутентификации от сервера
-        this.socket.on('user:authenticated', (data) => {
-            console.log('🔐 Сервер подтвердил аутентификацию для:', data.user?.login);
-            this.emitEvent('authSuccess', data.user);
+        // Отладка всех событий
+        this.socket.onAny((eventName, ...args) => {
+            if (eventName !== 'sync:update') { // Исключаем частые события
+                console.log(`📥 [${eventName}]`, args.length > 1 ? args : args[0]);
+            }
         });
     }
 
     emit(event, data, callback) {
-        if (!this.connected) {
+        if (!this.connected && !['user:login', 'user:register'].includes(event)) {
             this.showNotification('Нет подключения к серверу', 'error');
+            console.error('❌ WebSocket не подключен для события:', event);
+            if (callback) callback({ success: false, error: 'Нет подключения к серверу' });
             return;
         }
 
+        console.log('📤 Отправка события:', event, data);
+        
+        // Для событий авторизации не ждем connected
+        if (['user:login', 'user:register'].includes(event) && !this.connected) {
+            console.log('⚠️ WebSocket не подключен, но пытаемся отправить:', event);
+        }
+        
         this.socket.emit(event, data, (response) => {
+            console.log('📥 Ответ от сервера на', event, ':', response);
             if (callback) callback(response);
         });
     }
@@ -143,11 +195,16 @@ class SocketManager {
             this.socket.disconnect();
             this.socket = null;
             this.connected = false;
+            this.user = null;
         }
     }
 
     isConnected() {
         return this.connected;
+    }
+    
+    getUser() {
+        return this.user;
     }
 }
 

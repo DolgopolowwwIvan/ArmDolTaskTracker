@@ -4,6 +4,7 @@ import { authManager } from './js/auth.js';
 import { taskManager } from './js/tasks.js';
 import { dragDropManager } from './js/dragdrop.js';
 import { uiManager } from './js/ui.js';
+import { debugSocketEvents } from './js/debug.js';
 
 // Инициализация приложения
 class TaskTrackerApp {
@@ -11,20 +12,43 @@ class TaskTrackerApp {
         this.init();
     }
 
-    init() {
+    async init() {
         console.log('🚀 Task Tracker запускается...');
         
         // 1. Подключаемся к WebSocket
         socketManager.connect();
         
-        // 2. Восстанавливаем сессию
-        authManager.restoreSession();
+        // 2. Ждем подключения WebSocket перед восстановлением сессии
+        socketManager.on('connected', () => {
+            console.log('🔌 WebSocket подключен, восстанавливаем сессию...');
+            // 3. Восстанавливаем сессию
+            authManager.restoreSession();
+        });
         
-        // 3. Инициализируем интерфейс
+        // 4. Инициализируем интерфейс
         setTimeout(() => {
             dragDropManager.init();
             console.log('✅ Приложение инициализировано');
-        }, 100);
+            
+            // Включаем отладку
+            this.enableDebugMode();
+        }, 500);
+    }
+    
+    enableDebugMode() {
+        // Добавляем глобальные объекты для отладки
+        window.debug = {
+            socket: socketManager.socket,
+            tasks: () => console.log('Все задачи:', taskManager.getAllTasks()),
+            user: () => console.log('Текущий пользователь:', authManager.getCurrentUser()),
+            connection: () => console.log('WebSocket подключен:', socketManager.isConnected()),
+            emitTest: (event, data) => {
+                console.log(`Тест события ${event}:`, data);
+                socketManager.emit(event, data, (res) => console.log('Ответ:', res));
+            }
+        };
+        
+        console.log('🔍 Отладка включена. Используйте window.debug в консоли');
     }
 }
 
@@ -41,3 +65,5 @@ if (document.readyState === 'loading') {
 window.socketManager = socketManager;
 window.authManager = authManager;
 window.taskManager = taskManager;
+window.uiManager = uiManager;
+window.dragDropManager = dragDropManager;

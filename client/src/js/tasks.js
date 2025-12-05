@@ -42,24 +42,34 @@ class TaskManager {
 
         // Обновления задач
         socketManager.on('taskCreated', (task) => {
+            console.log('📥 Получено событие taskCreated:', task.id);
             this.addTask(task);
         });
 
         socketManager.on('taskUpdated', (task) => {
+            console.log('📥 Получено событие taskUpdated:', task.id);
             this.updateTask(task);
         });
 
         socketManager.on('taskDeleted', (data) => {
+            console.log('📥 Получено событие taskDeleted:', data.taskId);
             this.removeTask(data.taskId);
         });
 
+        // sync:update события
         socketManager.on('sync', (data) => {
-            if (data.type === 'task_created') {
-                this.addTask(data.task);
-            } else if (data.type === 'task_updated') {
+            console.log('📥 Получено sync событие:', data.type, data.task?.id);
+            
+            if (data.type === 'task_created' && data.task) {
+                if (!this.tasks.has(data.task.id)) {
+                    this.addTask(data.task);
+                }
+            } else if (data.type === 'task_updated' && data.task) {
                 this.updateTask(data.task);
             } else if (data.type === 'task_progress') {
-                this.updateTaskProgress(data);
+                this.handleTaskProgress(data);
+            } else if (data.type === 'task_deleted') {
+                this.removeTask(data.taskId);
             }
         });
     }
@@ -82,26 +92,27 @@ class TaskManager {
 
         const taskData = {
             title: title.trim(),
-            description: description.trim(),
-            password: '123' // упрощенная схема
+            description: description.trim()
         };
 
+        console.log('📤 Отправка задачи на создание:', taskData);
+
         socketManager.emit('task:create', taskData, (response) => {
-            if (response.success) {
-                // Поделиться задачей если указаны пользователи
+            console.log('📥 Ответ на создание задачи:', response);
+            if (response && response.success) {
                 if (shareWith.trim()) {
                     const userLogins = shareWith.split(',').map(s => s.trim()).filter(s => s);
                     this.shareTask(response.task.id, userLogins);
                 }
 
-                // Очищаем форму
                 document.getElementById('task-title').value = '';
                 document.getElementById('task-description').value = '';
                 document.getElementById('task-share').value = '';
 
                 showNotification('Задача создана!', 'success');
             } else {
-                showNotification(response.error || 'Ошибка создания задачи', 'error');
+                const errorMsg = response?.error || 'Ошибка создания задачи';
+                showNotification(errorMsg, 'error');
             }
         });
     }
@@ -114,110 +125,267 @@ class TaskManager {
 
         socketManager.emit('task:share', {
             taskId,
-            userLogins,
-            password: '123'
+            userLogins
         }, (response) => {
-            if (response.success) {
+            if (response && response.success) {
                 showNotification(`Задача поделена с ${response.sharedCount} пользователями`, 'success');
             } else {
-                showNotification(response.error || 'Ошибка при делении задачи', 'error');
+                const errorMsg = response?.error || 'Ошибка при делении задачи';
+                showNotification(errorMsg, 'error');
             }
         });
     }
 
     async completeTask(taskId) {
+        console.log('✅ Пытаемся выполнить задачу:', taskId);
+        
         const user = authManager.getCurrentUser();
-        if (!user) return;
+        if (!user) {
+            showNotification('Требуется авторизация', 'error');
+            return;
+        }
 
+        const numericTaskId = Number(taskId);
+        
+        // Получаем текущую задачу
+        const currentTask = this.tasks.get(numericTaskId);
+        if (currentTask && currentTask.progress === 100) {
+            showNotification('Задача уже выполнена', 'info');
+            return;
+        }
+        
+        // Анимация обновления
+        const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
+        if (taskElement) {
+            taskElement.classList.add('updating');
+        }
+        
         socketManager.emit('task:complete', {
-            taskId,
-            password: '123'
+            taskId: numericTaskId
         }, (response) => {
-            if (response.success) {
-                showNotification(`Прогресс задачи: ${response.progress}%`, 'info');
+            console.log('📨 Ответ на выполнение задачи:', response);
+            
+            if (taskElement) {
+                taskElement.classList.remove('updating');
+            }
+            
+            if (response && response.success) {
+                showNotification(`Прогресс задачи: ${response.progress || 0}%`, 'info');
+                
+                if (response.task) {
+                    // Используем данные от сервера
+                    this.updateTask(response.task);
+                } else {
+                    // Обновляем локально
+                    const task = this.tasks.get(numericTaskId);
+                    if (task) {
+                        task.progress = response.progress;
+                        task.updated_at = new Date().toISOString();
+                        
+                        if (response.progress === 100) {
+                            task.status = 'done';
+                            task.completed_at = new Date().toISOString();
+                        } else if (response.progress > 0) {
+                            task.status = 'inProgress';
+                        }
+                        
+                        this.updateTask(task);
+                    }
+                }
             } else {
-                showNotification(response.error || 'Ошибка выполнения задачи', 'error');
+                const errorMsg = response?.error || 'Ошибка выполнения задачи';
+                showNotification(errorMsg, 'error');
             }
         });
     }
 
     async deleteTask(taskId) {
+        console.log('🗑️ Пытаемся удалить задачу:', taskId);
+        
         if (!confirm('Удалить задачу?')) return;
 
         const user = authManager.getCurrentUser();
-        if (!user) return;
+        if (!user) {
+            showNotification('Требуется авторизация', 'error');
+            return;
+        }
 
         socketManager.emit('task:delete', {
-            taskId,
-            password: '123'
+            taskId: Number(taskId)
         }, (response) => {
-            if (response.success) {
+            console.log('📨 Ответ на удаление задачи:', response);
+            
+            if (response && response.success) {
                 showNotification('Задача удалена', 'info');
             } else {
-                showNotification(response.error || 'Ошибка удаления задачи', 'error');
+                const errorMsg = response?.error || 'Ошибка удаления задачи';
+                showNotification(errorMsg, 'error');
             }
         });
     }
 
     async loadUserTasks() {
-    const user = authManager.getCurrentUser();
-    if (!user) return;
+        const user = authManager.getCurrentUser();
+        if (!user) return;
 
-    console.log('🔄 Загружаем задачи для:', user.login);
+        console.log('🔄 Загружаем задачи для:', user.login);
 
-    socketManager.emit('profile:view', {
-        login: user.login
-    }, (response) => {
-        console.log('📨 Ответ profile:view:', response);
-        
-        if (response.success && response.profile) {
-            // Используем существующий метод вместо updateTasksList
-            const tasks = response.profile.tasks || [];
-            console.log('📋 Получено задач:', tasks.length);
+        socketManager.emit('profile:view', {
+            login: user.login
+        }, (response) => {
+            console.log('📨 Ответ profile:view:', response);
             
-            // Очищаем текущие задачи
-            this.tasks.clear();
-            
-            // Добавляем каждую задачу
-            tasks.forEach(task => {
-                this.addTask(task);
-            });
-            
-            // Обновляем счетчики
-            updateTaskCounts(this.tasks);
-            
-        } else {
-            console.error('❌ Ошибка загрузки задач:', response.error);
-        }
-    });
-}
+            if (response && response.success && response.profile) {
+                const tasks = response.profile.tasks || [];
+                console.log('📋 Получено задач:', tasks.length);
+                
+                // Очищаем все
+                this.tasks.clear();
+                ['todo-list', 'done-list'].forEach(listId => {
+                    const list = document.getElementById(listId);
+                    if (list) list.innerHTML = '';
+                });
+                
+                // Добавляем задачи
+                tasks.forEach(task => {
+                    this.addTask(task);
+                });
+                
+                updateTaskCounts(this.tasks);
+                
+            } else {
+                console.error('❌ Ошибка загрузки задач:', response?.error);
+            }
+        });
+    }
 
     addTask(task) {
-        this.tasks.set(task.id, task);
-        this.renderTask(task);
+        if (this.tasks.has(task.id)) {
+            console.log('⚠️ Задача уже существует:', task.id);
+            return;
+        }
+        
+        // Нормализуем данные задачи
+        const normalizedTask = {
+            ...task,
+            progress: task.progress || 0,
+            status: task.status || 'todo',
+            created_at: task.created_at || new Date().toISOString(),
+            updated_at: task.updated_at || task.created_at || new Date().toISOString()
+        };
+        
+        this.tasks.set(normalizedTask.id, normalizedTask);
+        this.renderTask(normalizedTask);
         updateTaskCounts(this.tasks);
     }
 
     updateTask(updatedTask) {
-        this.tasks.set(updatedTask.id, updatedTask);
-        
-        // Находим существующий элемент
-        const existingTask = document.querySelector(`[data-task-id="${updatedTask.id}"]`);
-        if (existingTask) {
-            existingTask.remove();
+        if (!updatedTask || !updatedTask.id) {
+            console.error('❌ Некорректная задача для обновления:', updatedTask);
+            return;
         }
         
-        this.renderTask(updatedTask);
+        // Объединяем с существующими данными
+        const existingTask = this.tasks.get(updatedTask.id) || {};
+        const mergedTask = {
+            ...existingTask,
+            ...updatedTask,
+            // Сохраняем критически важные поля если их нет в обновлении
+            title: updatedTask.title || existingTask.title || 'Без названия',
+            created_by_login: updatedTask.created_by_login || existingTask.created_by_login || 'Неизвестно',
+            created_at: updatedTask.created_at || existingTask.created_at || new Date().toISOString(),
+            // Обновляем даты
+            updated_at: new Date().toISOString(),
+            completed_at: updatedTask.progress === 100 ? new Date().toISOString() : existingTask.completed_at
+        };
+        
+        this.tasks.set(mergedTask.id, mergedTask);
+        
+        const existingElement = document.querySelector(`[data-task-id="${mergedTask.id}"]`);
+        
+        if (existingElement) {
+            // Обновляем существующий элемент
+            this.updateTaskElement(existingElement, mergedTask);
+        } else {
+            // Создаем новый элемент
+            this.renderTask(mergedTask);
+        }
+        
         updateTaskCounts(this.tasks);
     }
 
-    updateTaskProgress(data) {
+    updateTaskElement(element, task) {
+        // 1. Обновляем статус
+        element.dataset.status = task.status || 'todo';
+        
+        // 2. Обновляем прогресс
+        const progressBar = element.querySelector('.progress-bar');
+        const progressText = element.querySelector('.progress-text');
+        
+        if (progressBar && task.progress !== undefined) {
+            let progressColor = '#4ecdc4';
+            if (task.progress < 30) progressColor = '#ff6b6b';
+            if (task.progress >= 30 && task.progress < 70) progressColor = '#ffd166';
+            if (task.progress >= 70) progressColor = '#1dd1a1';
+            
+            progressBar.style.width = `${task.progress}%`;
+            progressBar.style.background = progressColor;
+        }
+        
+        if (progressText && task.progress !== undefined) {
+            progressText.textContent = `Прогресс: ${task.progress}%`;
+        }
+        
+        // 3. Обновляем дату
+        const dateElement = element.querySelector('.task-meta span:last-child');
+        if (dateElement) {
+            if (task.completed_at) {
+                dateElement.textContent = `Выполнено: ${new Date(task.completed_at).toLocaleDateString()}`;
+            } else if (task.updated_at) {
+                dateElement.textContent = `Обновлено: ${new Date(task.updated_at).toLocaleDateString()}`;
+            } else if (task.created_at) {
+                dateElement.textContent = `Создано: ${new Date(task.created_at).toLocaleDateString()}`;
+            }
+        }
+        
+        // 4. Обновляем кнопку выполнения
+        const completeBtn = element.querySelector('.complete');
+        if (completeBtn) {
+            if (task.progress === 100) {
+                completeBtn.innerHTML = '<i class="fas fa-check-double"></i> Выполнено';
+                completeBtn.disabled = true;
+                completeBtn.style.opacity = '0.5';
+            } else {
+                completeBtn.innerHTML = '<i class="fas fa-check"></i> Выполнить';
+                completeBtn.disabled = false;
+                completeBtn.style.opacity = '1';
+            }
+        }
+        
+        // 5. Перемещаем в правильную колонку если нужно
+        const targetColumnId = task.status === 'done' ? 'done-list' : 'todo-list';
+        const currentList = element.parentElement;
+        const targetList = document.getElementById(targetColumnId);
+        
+        if (targetList && currentList !== targetList) {
+            currentList.removeChild(element);
+            targetList.appendChild(element);
+        }
+    }
+
+    handleTaskProgress(data) {
         const task = this.tasks.get(data.taskId);
         if (task) {
             task.progress = data.progress;
+            task.updated_at = new Date().toISOString();
+            
             if (data.progress === 100) {
                 task.status = 'done';
+                task.completed_at = new Date().toISOString();
+            } else if (data.progress > 0) {
+                task.status = 'inProgress';
             }
+            
             this.updateTask(task);
         }
     }
@@ -234,10 +402,20 @@ class TaskManager {
     }
 
     renderTask(task) {
-        const columnId = `${task.status.toLowerCase().replace('progress', 'progress')}-list`;
+        const columnId = task.status === 'done' ? 'done-list' : 'todo-list';
         const taskList = document.getElementById(columnId);
         
-        if (!taskList) return;
+        if (!taskList) {
+            console.error('Список задач не найден:', columnId);
+            return;
+        }
+
+        // Проверяем, нет ли уже такой задачи
+        const existingTask = taskList.querySelector(`[data-task-id="${task.id}"]`);
+        if (existingTask) {
+            console.log('⚠️ Задача уже отображена:', task.id);
+            return;
+        }
 
         const taskElement = this.createTaskElement(task);
         taskList.appendChild(taskElement);
@@ -248,37 +426,51 @@ class TaskManager {
         div.className = 'task-card';
         div.dataset.taskId = task.id;
         div.draggable = true;
-        div.dataset.status = task.status;
+        div.dataset.status = task.status || 'todo';
 
-        // Определяем цвет прогресса
+        // Цвет прогресса
         let progressColor = '#4ecdc4';
-        if (task.progress < 30) progressColor = '#ff6b6b';
-        if (task.progress >= 30 && task.progress < 70) progressColor = '#ffd166';
-        if (task.progress >= 70) progressColor = '#1dd1a1';
+        const progress = task.progress || 0;
+        if (progress < 30) progressColor = '#ff6b6b';
+        if (progress >= 30 && progress < 70) progressColor = '#ffd166';
+        if (progress >= 70) progressColor = '#1dd1a1';
+
+        // Текст даты
+        let dateText = '';
+        if (task.completed_at) {
+            dateText = `Выполнено: ${new Date(task.completed_at).toLocaleDateString()}`;
+        } else if (task.updated_at && task.updated_at !== task.created_at) {
+            dateText = `Обновлено: ${new Date(task.updated_at).toLocaleDateString()}`;
+        } else {
+            dateText = `Создано: ${new Date(task.created_at).toLocaleDateString()}`;
+        }
+
+        // Автор
+        const author = task.created_by_login || 'Неизвестно';
 
         div.innerHTML = `
-            <div class="task-title">${this.escapeHtml(task.title)}</div>
+            <div class="task-title">${this.escapeHtml(task.title || 'Без названия')}</div>
             ${task.description ? `<div class="task-description">${this.escapeHtml(task.description)}</div>` : ''}
             
-            ${task.progress !== undefined ? `
-                <div class="task-progress">
-                    <div class="progress-bar" style="width: ${task.progress}%; background: ${progressColor};"></div>
-                </div>
-                <div style="text-align: center; font-size: 12px; color: #666; margin-bottom: 10px;">
-                    Прогресс: ${task.progress}%
-                </div>
-            ` : ''}
+            <div class="task-progress">
+                <div class="progress-bar" style="width: ${progress}%; background: ${progressColor};"></div>
+            </div>
+            <div class="progress-text" style="text-align: center; font-size: 12px; color: #666; margin-bottom: 10px;">
+                Прогресс: ${progress}%
+            </div>
             
             <div class="task-meta">
-                <span class="task-author">${this.escapeHtml(task.created_by_login || 'Неизвестно')}</span>
-                <span>${new Date(task.created_at).toLocaleDateString()}</span>
+                <span class="task-author">${this.escapeHtml(author)}</span>
+                <span>${dateText}</span>
             </div>
             
             <div class="task-actions">
-                <button class="task-btn complete" onclick="taskManager.completeTask('${task.id}')">
-                    <i class="fas fa-check"></i> Выполнить
+                <button class="task-btn complete" onclick="window.taskManager.completeTask('${task.id}')" 
+                    ${progress === 100 ? 'disabled style="opacity: 0.5;"' : ''}>
+                    <i class="fas ${progress === 100 ? 'fa-check-double' : 'fa-check'}"></i> 
+                    ${progress === 100 ? 'Выполнено' : 'Выполнить'}
                 </button>
-                <button class="task-btn delete" onclick="taskManager.deleteTask('${task.id}')">
+                <button class="task-btn delete" onclick="window.taskManager.deleteTask('${task.id}')">
                     <i class="fas fa-trash"></i> Удалить
                 </button>
             </div>
@@ -302,7 +494,7 @@ class TaskManager {
 
         socketManager.emit('profile:view', { login: username }, (response) => {
             const resultsEl = document.getElementById('search-results');
-            if (response.success && response.profile) {
+            if (response && response.success && response.profile) {
                 const profile = response.profile;
                 resultsEl.innerHTML = `
                     <div class="profile-result">
@@ -312,7 +504,7 @@ class TaskManager {
                             <div>📋 Всего задач: <strong>${profile.total_tasks || 0}</strong></div>
                             <div>🤝 Общих задач: <strong>${profile.shared_tasks || 0}</strong></div>
                         </div>
-                        <button class="btn-primary" onclick="taskManager.viewProfileTasks('${profile.login}')">
+                        <button class="btn-primary" onclick="window.taskManager.viewProfileTasks('${profile.login}')">
                             <i class="fas fa-eye"></i> Посмотреть задачи
                         </button>
                     </div>
@@ -328,14 +520,8 @@ class TaskManager {
     }
 
     viewProfileTasks(username) {
-        // Закрываем модалку поиска
         document.getElementById('search-modal').classList.remove('active');
-        
-        // Открываем модалку профиля
-        const modal = document.getElementById('profile-modal');
-        modal.classList.add('active');
-        
-        // Загружаем данные профиля
+        document.getElementById('profile-modal').classList.add('active');
         this.loadProfileData(username);
     }
 
@@ -343,14 +529,13 @@ class TaskManager {
         document.getElementById('profile-username').textContent = `Профиль: ${username}`;
         
         socketManager.emit('profile:view', { login: username }, (response) => {
-            if (response.success && response.profile) {
+            if (response && response.success && response.profile) {
                 const profile = response.profile;
                 
                 document.getElementById('profile-tasks-completed').textContent = profile.tasks_completed || 0;
                 document.getElementById('profile-total-tasks').textContent = profile.total_tasks || 0;
                 document.getElementById('profile-shared-tasks').textContent = profile.shared_tasks || 0;
                 
-                // Показываем задачи пользователя
                 this.displayProfileTasks(profile.tasks || []);
             }
         });
@@ -399,6 +584,4 @@ class TaskManager {
 }
 
 export const taskManager = new TaskManager();
-
-// Делаем глобально доступным для вызовов из HTML
 window.taskManager = taskManager;
