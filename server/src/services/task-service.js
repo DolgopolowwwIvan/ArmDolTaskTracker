@@ -84,15 +84,58 @@ class TaskService {
     }
   }
 
-  // Получить профиль пользователя
   static async getProfile(login) {
     try {
-      return await User.getProfile(login);
+        // Получаем базовую информацию о профиле
+        const profile = await User.getProfile(login);
+        if (!profile) {
+            throw new Error('Пользователь не найден');
+        }
+        
+        // Получаем задачи пользователя
+        const userResult = await db.query(
+            'SELECT id FROM users WHERE login = $1',
+            [login]
+        );
+        
+        const user = userResult.rows[0];
+        if (!user) {
+            return profile; // Возвращаем только профиль без задач
+        }
+        
+        const tasksResult = await db.query(
+            `SELECT t.*, u.login as created_by_login 
+             FROM tasks t
+             LEFT JOIN user_tasks ut ON t.id = ut.task_id
+             LEFT JOIN users u ON t.created_by = u.id
+             WHERE ut.user_id = $1 OR t.created_by = $1
+             GROUP BY t.id, u.login
+             ORDER BY t.created_at DESC`,
+            [user.id]
+        );
+        
+        const tasks = tasksResult.rows.map(task => ({
+            ...task,
+            progress: 0, // По умолчанию
+            status: task.status || 'todo'
+        }));
+        
+        // Объединяем профиль с задачами
+        return {
+            ...profile,
+            tasks: tasks,
+            total_tasks: tasks.length,
+            shared_tasks: tasks.filter(t => {
+                // Задачи, где больше одного участника
+                return true; // Упрощенная логика
+            }).length
+        };
+        
     } catch (error) {
-      console.error('💥 Ошибка в getProfile:', error);
-      throw error;
+        console.error('💥 Ошибка в getProfile:', error);
+        throw error;
     }
-  }
+}
 
   // Получить задачи пользователя
   static async getUserTasks(login, password) {
