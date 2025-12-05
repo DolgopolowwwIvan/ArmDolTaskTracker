@@ -6,22 +6,61 @@ const { Task, User } = require('../database/models');
 class TaskService {
   // Создать задачу
   static async createTask(login, taskData) {
-    // Находим пользователя
-    const user = await User.login(login, taskData.password);
-    if (!user) throw new Error('Пользователь не найден');
-
-    // Создаем задачу
-    const task = await Task.create(
-      taskData.title,
-      taskData.description,
-      user.id
-    );
-
-    return {
-      ...task,
-      created_by_login: login
-    };
-  }
+    console.log('🛠️ TaskService.createTask вызывается для:', login);
+    console.log('📦 Данные задачи:', taskData);
+    
+    try {
+        // Вариант 1: Ищем пользователя по логину (без пароля для упрощения)
+        console.log('🔍 Ищем пользователя:', login);
+        
+        // Временно: получаем пользователя напрямую из базы
+        const db = require('../database/connection');
+        const userResult = await db.query(
+            'SELECT id, login, tasks_completed FROM users WHERE login = $1',
+            [login]
+        );
+        
+        const user = userResult.rows[0];
+        console.log('👤 Найден пользователь:', user);
+        
+        if (!user) {
+            // Если не нашли, попробуем через User.login
+            console.log('⚠️ Не найден напрямую, пробуем User.login...');
+            try {
+                const userFromLogin = await User.login(login, taskData.password);
+                console.log('✅ Найден через User.login:', userFromLogin);
+                user = userFromLogin;
+            } catch (loginError) {
+                console.error('❌ Ошибка User.login:', loginError.message);
+                throw new Error(`Пользователь "${login}" не найден. Пароль: "${taskData.password}"`);
+            }
+        }
+        
+        if (!user) {
+            throw new Error(`Пользователь "${login}" не существует в базе данных`);
+        }
+        
+        // Создаем задачу
+        console.log('📝 Создаем задачу для пользователя ID:', user.id);
+        const task = await Task.create(
+            taskData.title,
+            taskData.description || '',
+            user.id
+        );
+        
+        console.log('✅ Задача создана успешно:', task.id);
+        
+        return {
+            ...task,
+            created_by_login: login
+        };
+        
+    } catch (error) {
+        console.error('💥 Критическая ошибка в createTask:', error);
+        console.error('Stack trace:', error.stack);
+        throw error;
+    }
+}
 
   // Поделиться задачей
   static async shareTask(taskId, ownerLogin, sharedLogins) {
