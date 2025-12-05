@@ -73,6 +73,12 @@ class SocketManager {
             this.emitEvent('userLeft', data);
             this.updateOnlineCount(data.onlineCount);
         });
+
+        // ✅ ВАЖНО: Слушаем подтверждение аутентификации от сервера
+        this.socket.on('user:authenticated', (data) => {
+            console.log('🔐 Сервер подтвердил аутентификацию для:', data.user?.login);
+            this.emitEvent('authSuccess', data.user);
+        });
     }
 
     emit(event, data, callback) {

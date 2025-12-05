@@ -160,17 +160,37 @@ class TaskManager {
     }
 
     async loadUserTasks() {
-        const user = authManager.getCurrentUser();
-        if (!user) return;
+    const user = authManager.getCurrentUser();
+    if (!user) return;
 
-        socketManager.emit('profile:view', {
-            login: user.login
-        }, (response) => {
-            if (response.success && response.profile) {
-                this.updateTasksList(response.profile.tasks || []);
-            }
-        });
-    }
+    console.log('🔄 Загружаем задачи для:', user.login);
+
+    socketManager.emit('profile:view', {
+        login: user.login
+    }, (response) => {
+        console.log('📨 Ответ profile:view:', response);
+        
+        if (response.success && response.profile) {
+            // Используем существующий метод вместо updateTasksList
+            const tasks = response.profile.tasks || [];
+            console.log('📋 Получено задач:', tasks.length);
+            
+            // Очищаем текущие задачи
+            this.tasks.clear();
+            
+            // Добавляем каждую задачу
+            tasks.forEach(task => {
+                this.addTask(task);
+            });
+            
+            // Обновляем счетчики
+            updateTaskCounts(this.tasks);
+            
+        } else {
+            console.error('❌ Ошибка загрузки задач:', response.error);
+        }
+    });
+}
 
     addTask(task) {
         this.tasks.set(task.id, task);
