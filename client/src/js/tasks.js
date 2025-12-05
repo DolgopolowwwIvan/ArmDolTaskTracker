@@ -5,6 +5,12 @@ import { showNotification, updateTaskCounts } from './ui.js';
 class TaskManager {
     constructor() {
         this.tasks = new Map(); // id -> task
+        
+        // Пытаемся восстановить задачи из localStorage при запуске
+        setTimeout(() => {
+            this.restoreTasksFromLocalStorage();
+        }, 1000);
+        
         this.initEventListeners();
         this.setupSocketListeners();
     }
@@ -40,6 +46,14 @@ class TaskManager {
             this.loadUserTasks();
         });
 
+        // Получение задач пользователя после аутентификации
+        socketManager.on('user:tasks', (data) => {
+            console.log('📥 Получены задачи пользователя:', data.tasks?.length);
+            if (data && data.tasks) {
+                this.loadTasksFromServer(data.tasks);
+            }
+        });
+
         // Обновления задач
         socketManager.on('taskCreated', (task) => {
             console.log('📥 Получено событие taskCreated:', task.id);
@@ -72,6 +86,72 @@ class TaskManager {
                 this.removeTask(data.taskId);
             }
         });
+    }
+
+    // Методы для работы с localStorage
+    saveTasksToLocalStorage() {
+        try {
+            const user = authManager.getCurrentUser();
+            if (!user) return;
+            
+            const tasksArray = Array.from(this.tasks.values());
+            localStorage.setItem(`tasks_${user.login}`, JSON.stringify(tasksArray));
+            localStorage.setItem(`tasks_timestamp_${user.login}`, Date.now().toString());
+            console.log('💾 Задачи сохранены в localStorage');
+        } catch (error) {
+            console.error('❌ Ошибка сохранения задач в localStorage:', error);
+        }
+    }
+
+    restoreTasksFromLocalStorage() {
+        try {
+            const user = authManager.getCurrentUser();
+            if (!user) return false;
+            
+            const saved = localStorage.getItem(`tasks_${user.login}`);
+            const timestamp = localStorage.getItem(`tasks_timestamp_${user.login}`);
+            
+            if (saved && timestamp) {
+                const age = Date.now() - parseInt(timestamp);
+                // Восстанавливаем только если прошло меньше 10 минут
+                if (age < 10 * 60 * 1000) {
+                    const tasks = JSON.parse(saved);
+                    console.log('💾 Восстановление задач из localStorage:', tasks.length);
+                    
+                    // Очищаем текущие задачи
+                    this.tasks.clear();
+                    
+                    // Очищаем списки
+                    ['todo-list', 'done-list'].forEach(listId => {
+                        const list = document.getElementById(listId);
+                        if (list) list.innerHTML = '';
+                    });
+                    
+                    // Добавляем восстановленные задачи
+                    tasks.forEach(task => {
+                        this.addTask(task);
+                    });
+                    
+                    updateTaskCounts(this.tasks);
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.error('❌ Ошибка восстановления задач из localStorage:', error);
+        }
+        return false;
+    }
+
+    clearLocalStorageTasks() {
+        try {
+            const user = authManager.getCurrentUser();
+            if (user) {
+                localStorage.removeItem(`tasks_${user.login}`);
+                localStorage.removeItem(`tasks_timestamp_${user.login}`);
+            }
+        } catch (error) {
+            console.error('Ошибка очистки localStorage:', error);
+        }
     }
 
     async createTask() {
@@ -217,6 +297,7 @@ class TaskManager {
             
             if (response && response.success) {
                 showNotification('Задача удалена', 'info');
+                this.removeTask(taskId);
             } else {
                 const errorMsg = response?.error || 'Ошибка удаления задачи';
                 showNotification(errorMsg, 'error');
@@ -226,10 +307,14 @@ class TaskManager {
 
     async loadUserTasks() {
         const user = authManager.getCurrentUser();
-        if (!user) return;
+        if (!user) {
+            console.log('❌ Нет пользователя для загрузки задач');
+            return;
+        }
 
         console.log('🔄 Загружаем задачи для:', user.login);
 
+        // Сначала пробуем через profile:view
         socketManager.emit('profile:view', {
             login: user.login
         }, (response) => {
@@ -237,29 +322,61 @@ class TaskManager {
             
             if (response && response.success && response.profile) {
                 const tasks = response.profile.tasks || [];
-                console.log('📋 Получено задач:', tasks.length);
+                console.log('📋 Получено задач через profile:view:', tasks.length);
                 
-                // Очищаем все
-                this.tasks.clear();
-                ['todo-list', 'done-list'].forEach(listId => {
-                    const list = document.getElementById(listId);
-                    if (list) list.innerHTML = '';
-                });
-                
-                // Добавляем задачи
-                tasks.forEach(task => {
-                    this.addTask(task);
-                });
-                
-                updateTaskCounts(this.tasks);
+                this.loadTasksFromServer(tasks);
                 
             } else {
-                console.error('❌ Ошибка загрузки задач:', response?.error);
+                console.error('❌ Ошибка загрузки задач через profile:view:', response?.error);
+                
+                // Пробуем через get_user_tasks
+                socketManager.emit('get_user_tasks', {
+                    login: user.login
+                }, (response2) => {
+                    console.log('📨 Ответ get_user_tasks:', response2);
+                    
+                    if (response2 && response2.success && response2.tasks) {
+                        console.log('📋 Получено задач через get_user_tasks:', response2.tasks.length);
+                        this.loadTasksFromServer(response2.tasks);
+                    } else {
+                        console.error('❌ Ошибка загрузки задач через get_user_tasks:', response2?.error);
+                        showNotification('Не удалось загрузить задачи', 'error');
+                    }
+                });
             }
         });
     }
 
+    loadTasksFromServer(tasks) {
+        console.log('🔄 Загрузка задач с сервера:', tasks.length);
+        
+        // Очищаем текущие задачи
+        this.tasks.clear();
+        
+        // Очищаем все списки задач
+        ['todo-list', 'done-list'].forEach(listId => {
+            const list = document.getElementById(listId);
+            if (list) list.innerHTML = '';
+        });
+        
+        // Добавляем каждую задачу
+        tasks.forEach(task => {
+            this.addTask(task);
+        });
+        
+        // Обновляем счетчики
+        updateTaskCounts(this.tasks);
+        
+        // Сохраняем в localStorage
+        this.saveTasksToLocalStorage();
+    }
+
     addTask(task) {
+        if (!task || !task.id) {
+            console.error('❌ Некорректная задача:', task);
+            return;
+        }
+        
         if (this.tasks.has(task.id)) {
             console.log('⚠️ Задача уже существует:', task.id);
             return;
@@ -268,15 +385,23 @@ class TaskManager {
         // Нормализуем данные задачи
         const normalizedTask = {
             ...task,
+            id: Number(task.id),
+            title: task.title || 'Без названия',
+            description: task.description || '',
             progress: task.progress || 0,
             status: task.status || 'todo',
+            created_by_login: task.created_by_login || 'Неизвестно',
             created_at: task.created_at || new Date().toISOString(),
-            updated_at: task.updated_at || task.created_at || new Date().toISOString()
+            updated_at: task.updated_at || task.created_at || new Date().toISOString(),
+            completed_at: task.completed_at || null
         };
         
         this.tasks.set(normalizedTask.id, normalizedTask);
         this.renderTask(normalizedTask);
         updateTaskCounts(this.tasks);
+        
+        // Сохраняем в localStorage
+        this.saveTasksToLocalStorage();
     }
 
     updateTask(updatedTask) {
@@ -285,11 +410,14 @@ class TaskManager {
             return;
         }
         
+        const taskId = Number(updatedTask.id);
+        
         // Объединяем с существующими данными
-        const existingTask = this.tasks.get(updatedTask.id) || {};
+        const existingTask = this.tasks.get(taskId) || {};
         const mergedTask = {
             ...existingTask,
             ...updatedTask,
+            id: taskId,
             // Сохраняем критически важные поля если их нет в обновлении
             title: updatedTask.title || existingTask.title || 'Без названия',
             created_by_login: updatedTask.created_by_login || existingTask.created_by_login || 'Неизвестно',
@@ -312,6 +440,9 @@ class TaskManager {
         }
         
         updateTaskCounts(this.tasks);
+        
+        // Сохраняем в localStorage
+        this.saveTasksToLocalStorage();
     }
 
     updateTaskElement(element, task) {
@@ -341,7 +472,7 @@ class TaskManager {
         if (dateElement) {
             if (task.completed_at) {
                 dateElement.textContent = `Выполнено: ${new Date(task.completed_at).toLocaleDateString()}`;
-            } else if (task.updated_at) {
+            } else if (task.updated_at && task.updated_at !== task.created_at) {
                 dateElement.textContent = `Обновлено: ${new Date(task.updated_at).toLocaleDateString()}`;
             } else if (task.created_at) {
                 dateElement.textContent = `Создано: ${new Date(task.created_at).toLocaleDateString()}`;
@@ -355,11 +486,16 @@ class TaskManager {
                 completeBtn.innerHTML = '<i class="fas fa-check-double"></i> Выполнено';
                 completeBtn.disabled = true;
                 completeBtn.style.opacity = '0.5';
+                completeBtn.style.cursor = 'not-allowed';
             } else {
                 completeBtn.innerHTML = '<i class="fas fa-check"></i> Выполнить';
                 completeBtn.disabled = false;
                 completeBtn.style.opacity = '1';
+                completeBtn.style.cursor = 'pointer';
             }
+            
+            // Обновляем обработчик
+            completeBtn.onclick = () => window.taskManager.completeTask(task.id);
         }
         
         // 5. Перемещаем в правильную колонку если нужно
@@ -367,7 +503,7 @@ class TaskManager {
         const currentList = element.parentElement;
         const targetList = document.getElementById(targetColumnId);
         
-        if (targetList && currentList !== targetList) {
+        if (targetList && currentList && currentList !== targetList) {
             currentList.removeChild(element);
             targetList.appendChild(element);
         }
@@ -391,7 +527,8 @@ class TaskManager {
     }
 
     removeTask(taskId) {
-        this.tasks.delete(taskId);
+        const numericTaskId = Number(taskId);
+        this.tasks.delete(numericTaskId);
         
         const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
         if (taskElement) {
@@ -399,9 +536,17 @@ class TaskManager {
         }
         
         updateTaskCounts(this.tasks);
+        
+        // Сохраняем в localStorage
+        this.saveTasksToLocalStorage();
     }
 
     renderTask(task) {
+        if (!task || !task.id) {
+            console.error('❌ Некорректная задача для отрисовки:', task);
+            return;
+        }
+        
         const columnId = task.status === 'done' ? 'done-list' : 'todo-list';
         const taskList = document.getElementById(columnId);
         
@@ -414,6 +559,7 @@ class TaskManager {
         const existingTask = taskList.querySelector(`[data-task-id="${task.id}"]`);
         if (existingTask) {
             console.log('⚠️ Задача уже отображена:', task.id);
+            this.updateTaskElement(existingTask, task);
             return;
         }
 
@@ -466,7 +612,7 @@ class TaskManager {
             
             <div class="task-actions">
                 <button class="task-btn complete" onclick="window.taskManager.completeTask('${task.id}')" 
-                    ${progress === 100 ? 'disabled style="opacity: 0.5;"' : ''}>
+                    ${progress === 100 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : 'style="cursor: pointer;"'}>
                     <i class="fas ${progress === 100 ? 'fa-check-double' : 'fa-check'}"></i> 
                     ${progress === 100 ? 'Выполнено' : 'Выполнить'}
                 </button>
@@ -573,6 +719,7 @@ class TaskManager {
     }
 
     escapeHtml(text) {
+        if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;

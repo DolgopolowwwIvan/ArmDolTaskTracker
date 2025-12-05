@@ -1,5 +1,6 @@
 import { socketManager } from './socket.js';
 import { showNotification } from './ui.js';
+import { taskManager } from './tasks.js';
 
 class AuthManager {
     constructor() {
@@ -88,6 +89,9 @@ class AuthManager {
                 // Обновляем интерфейс
                 this.updateUIAfterLogin(response.user);
                 
+                // Загружаем задачи пользователя
+                this.loadUserTasks();
+                
             } else {
                 const errorMsg = response?.error || 'Ошибка входа';
                 console.error('❌ Ошибка входа:', errorMsg);
@@ -145,6 +149,9 @@ class AuthManager {
 
         // Обновляем интерфейс
         this.updateUIAfterLogin(user);
+        
+        // Загружаем задачи пользователя
+        this.loadUserTasks();
     }
 
     updateUIAfterLogin(user) {
@@ -157,9 +164,20 @@ class AuthManager {
 
         // Показываем уведомление
         showNotification(`Добро пожаловать, ${user.login}!`, 'success');
+    }
 
-        // Запрашиваем задачи пользователя
-        socketManager.emitEvent('loadTasks');
+    // Загрузить задачи пользователя
+    loadUserTasks() {
+        if (this.currentUser && this.isAuthenticated) {
+            console.log('🔄 Загрузка задач для пользователя:', this.currentUser.login);
+            
+            // Используем taskManager для загрузки задач
+            if (window.taskManager && typeof window.taskManager.loadUserTasks === 'function') {
+                setTimeout(() => {
+                    window.taskManager.loadUserTasks();
+                }, 500); // Небольшая задержка для стабилизации соединения
+            }
+        }
     }
 
     logout() {
@@ -187,6 +205,17 @@ class AuthManager {
         document.getElementById('register-username').value = '';
         document.getElementById('register-password').value = '';
 
+        // Очищаем задачи
+        if (window.taskManager && window.taskManager.tasks) {
+            window.taskManager.tasks.clear();
+        }
+        
+        // Очищаем списки задач
+        ['todo-list', 'done-list'].forEach(listId => {
+            const list = document.getElementById(listId);
+            if (list) list.innerHTML = '';
+        });
+
         showNotification('Вы вышли из системы', 'info');
     }
 
@@ -204,7 +233,6 @@ class AuthManager {
         if (savedUser) {
             try {
                 const user = JSON.parse(savedUser);
-                // Проверяем что есть минимальные данные
                 if (user && user.login) {
                     console.log('🔄 Восстановление сессии для:', user.login);
                     
@@ -212,11 +240,19 @@ class AuthManager {
                     document.getElementById('login-username').value = user.login;
                     document.getElementById('auth-page').classList.add('active');
                     
-                    // Показываем уведомление
-                    showNotification('Войдите снова для восстановления сессии', 'info');
+                    // Сохраняем пользователя для быстрого доступа
+                    this.currentUser = user;
                     
-                    // Можно попробовать автоматический вход
-                    // Но лучше запросить пароль у пользователя
+                    // Ждем подключения WebSocket и автоматически входим
+                    if (socketManager.isConnected()) {
+                        this.attemptAutoLogin(user);
+                    } else {
+                        // Ждем подключения WebSocket
+                        socketManager.on('connected', () => {
+                            console.log('🔌 WebSocket подключен, пытаемся восстановить сессию...');
+                            this.attemptAutoLogin(user);
+                        });
+                    }
                     
                 } else {
                     localStorage.removeItem('currentUser');
@@ -226,6 +262,28 @@ class AuthManager {
                 localStorage.removeItem('currentUser');
             }
         }
+    }
+    
+    // Попытка автоматического входа
+    attemptAutoLogin(user) {
+        console.log('🔐 Попытка автоматического входа для:', user.login);
+        
+        socketManager.emit('user:login', { 
+            login: user.login, 
+            password: '123' // упрощенная схема
+        }, (response) => {
+            console.log('📨 Ответ на автоматический вход:', response);
+            
+            if (response && response.success) {
+                console.log('✅ Автоматический вход успешен');
+                this.handleAuthSuccess(response.user);
+            } else {
+                console.log('❌ Автоматический вход не удался, показываем форму');
+                // Если автоматический вход не удался, просто заполняем поле логина
+                document.getElementById('login-username').value = user.login;
+                showNotification('Войдите снова', 'info');
+            }
+        });
     }
 }
 
