@@ -71,11 +71,13 @@ const User = {
   async getProfile(login) {
     const result = await db.query(
       `SELECT u.id, u.login, u.tasks_completed,
-              COUNT(t.id) as total_tasks,
-              COUNT(ut.task_id) as shared_tasks
+              COUNT(DISTINCT t.id) as total_tasks,
+              COUNT(DISTINCT CASE WHEN t.status = 'done' THEN t.id END) as completed_tasks,
+              COUNT(DISTINCT CASE WHEN ut2.user_id IS NOT NULL THEN ut2.task_id END) as shared_tasks
        FROM users u
        LEFT JOIN tasks t ON t.created_by = u.id
        LEFT JOIN user_tasks ut ON ut.user_id = u.id
+       LEFT JOIN user_tasks ut2 ON ut2.task_id = t.id AND ut2.user_id != u.id
        WHERE u.login = $1
        GROUP BY u.id`,
       [login]
@@ -99,7 +101,7 @@ const Task = {
     const result = await db.query(
       `INSERT INTO tasks (title, description, created_by) 
        VALUES ($1, $2, $3) 
-       RETURNING id, title, description, status, created_by, created_at`,
+       RETURNING id, title, description, status, created_by, created_at, updated_at`,
       [title, description, createdBy]
     );
     
@@ -135,7 +137,7 @@ const Task = {
       `UPDATE tasks 
        SET status = $1, updated_at = NOW() 
        WHERE id = $2 
-       RETURNING id, title, status, created_by`,
+       RETURNING id, title, status, created_by, created_at, updated_at`,
       [status, taskId]
     );
     return result.rows[0];
@@ -163,7 +165,7 @@ const Task = {
     const { total_users, completed_users } = result.rows[0];
     
     // Если все выполнили - задача завершена
-    if (total_users === completed_users) {
+    if (total_users === completed_users && total_users > 0) {
       await this.updateStatus(taskId, 'done');
       
       // Увеличиваем счетчики всем пользователям
@@ -185,31 +187,49 @@ const Task = {
     };
   },
 
-  // Получить задачи пользователя
+  // Получить задачи пользователя с прогрессом
   async getUserTasks(userId) {
     const result = await db.query(
       `SELECT t.*, 
-              ut.completed as user_completed,
+              u.login as created_by_login,
               COUNT(ut2.user_id) as total_participants,
-              SUM(CASE WHEN ut2.completed THEN 1 ELSE 0 END) as completed_participants
+              SUM(CASE WHEN ut2.completed THEN 1 ELSE 0 END) as completed_participants,
+              ut.completed as user_completed
        FROM tasks t
        JOIN user_tasks ut ON t.id = ut.task_id
+       LEFT JOIN users u ON t.created_by = u.id
        LEFT JOIN user_tasks ut2 ON t.id = ut2.task_id
        WHERE ut.user_id = $1
-       GROUP BY t.id, ut.completed
+       GROUP BY t.id, u.login, ut.completed
        ORDER BY t.created_at DESC`,
       [userId]
     );
-    return result.rows;
+    
+    return result.rows.map(row => {
+      // Рассчитываем прогресс
+      let progress = 0;
+      if (row.status === 'done') {
+        progress = 100;
+      } else if (row.total_participants > 0) {
+        progress = Math.round((row.completed_participants / row.total_participants) * 100);
+      }
+      
+      return {
+        ...row,
+        progress: progress
+      };
+    });
   },
 
   // Получить общие задачи (где несколько пользователей)
   async getSharedTasks(userId) {
     const result = await db.query(
       `SELECT t.*,
+              u.login as created_by_login,
               COUNT(ut.user_id) as participant_count
        FROM tasks t
        JOIN user_tasks ut ON t.id = ut.task_id
+       LEFT JOIN users u ON t.created_by = u.id
        WHERE ut.user_id = $1
          AND t.id IN (
            SELECT task_id 
@@ -217,10 +237,22 @@ const Task = {
            GROUP BY task_id 
            HAVING COUNT(user_id) > 1
          )
-       GROUP BY t.id`,
+       GROUP BY t.id, u.login`,
       [userId]
     );
-    return result.rows;
+    
+    return result.rows.map(row => {
+      // Рассчитываем прогресс для shared задач
+      let progress = 0;
+      if (row.status === 'done') {
+        progress = 100;
+      }
+      
+      return {
+        ...row,
+        progress: progress
+      };
+    });
   }
 };
 

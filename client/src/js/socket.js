@@ -8,6 +8,7 @@ class SocketManager {
         this.user = null;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
+        this.suppressNotifications = false; // Флаг для подавления уведомлений
     }
 
     connect() {
@@ -27,7 +28,7 @@ class SocketManager {
         this.setupEventListeners();
     }
 
-    setupEventListeners() {
+  setupEventListeners() {
         this.socket.on('connect', () => {
             console.log('✅ WebSocket подключен:', this.socket.id);
             this.connected = true;
@@ -89,21 +90,28 @@ class SocketManager {
             this.showNotification('Не удалось восстановить соединение', 'error');
         });
 
-        // Обработка событий задач
+        // Обработка событий задач - УБРАЛИ УВЕДОМЛЕНИЯ ИЗ sync:update
         this.socket.on('sync:update', (data) => {
             console.log('🔄 Real-time обновление:', data.type);
             this.emitEvent('sync', data);
             
-            if (data.type === 'task_created') {
-                this.showNotification(`Новая задача: ${data.task?.title}`, 'info');
-            } else if (data.type === 'task_progress') {
-                this.showNotification(`Обновлен прогресс задачи`, 'info');
-            }
+            // Убрали уведомления здесь, так как они уже показываются на фронтенде
+            // if (data.type === 'task_created') {
+            //     this.showNotification(`Новая задача: ${data.task?.title}`, 'info');
+            // } else if (data.type === 'task_progress') {
+            //     this.showNotification(`Обновлен прогресс задачи`, 'info');
+            // }
         });
 
         this.socket.on('task:create', (task) => {
             console.log('📋 Новая задача от сервера:', task.id);
             this.emitEvent('taskCreated', task);
+            
+            // Показываем уведомление только если мы не создавали задачу сами
+            if (!this.suppressNotifications) {
+                this.showNotification(`Задача создана: ${task.title}`, 'success');
+            }
+            this.suppressNotifications = false;
         });
 
         this.socket.on('task:update', (task) => {
@@ -114,6 +122,12 @@ class SocketManager {
         this.socket.on('task:delete', (data) => {
             console.log('🗑️ Задача удалена сервером:', data.taskId);
             this.emitEvent('taskDeleted', data);
+            
+            // Показываем уведомление только если мы не удаляли задачу сами
+            if (!this.suppressNotifications) {
+                this.showNotification('Задача удалена', 'info');
+            }
+            this.suppressNotifications = false;
         });
 
         // События авторизации
@@ -170,18 +184,6 @@ class SocketManager {
             this.showNotification(`Ошибка: ${error.message || error}`, 'error');
         });
 
-        this.socket.on('user:joined', (data) => {
-            console.log('👋 Новый пользователь:', data);
-            this.emitEvent('userJoined', data);
-            this.updateOnlineCount(data.onlineCount);
-        });
-
-        this.socket.on('user:left', (data) => {
-            console.log('👋 Пользователь вышел:', data);
-            this.emitEvent('userLeft', data);
-            this.updateOnlineCount(data.onlineCount);
-        });
-
         // Событие для загрузки задач
         this.socket.on('user:tasks', (data) => {
             console.log('📥 Получены задачи пользователя:', data.tasks?.length);
@@ -197,6 +199,9 @@ class SocketManager {
     }
 
     emit(event, data, callback) {
+        // Сбрасываем флаг подавления уведомлений перед отправкой
+        this.suppressNotifications = false;
+        
         // Для событий авторизации позволяем отправлять даже если нет подключения
         if (!this.connected && !['user:login', 'user:register', 'user:restore'].includes(event)) {
             this.showNotification('Нет подключения к серверу', 'error');
@@ -217,6 +222,12 @@ class SocketManager {
             if (callback) callback({ success: false, error: error.message });
         }
     }
+
+    // Добавляем метод для подавления уведомлений
+    suppressNotificationForNextEvent() {
+        this.suppressNotifications = true;
+    }
+    
 
     on(event, callback) {
         if (!this.listeners.has(event)) {
@@ -265,12 +276,7 @@ class SocketManager {
         }
     }
 
-    updateOnlineCount(count) {
-        const countEl = document.getElementById('online-count');
-        if (countEl) {
-            countEl.textContent = count || 1;
-        }
-    }
+    // Убран метод updateOnlineCount
 
     showNotification(message, type = 'info') {
         this.emitEvent('notification', { message, type });

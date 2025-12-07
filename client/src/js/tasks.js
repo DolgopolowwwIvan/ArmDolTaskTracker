@@ -5,6 +5,7 @@ import { showNotification, updateTaskCounts } from './ui.js';
 class TaskManager {
     constructor() {
         this.tasks = new Map(); // id -> task
+        this.isProcessingAction = false; // Флаг для отслеживания выполняемых действий
         
         // Пытаемся восстановить задачи из localStorage при запуске
         setTimeout(() => {
@@ -70,7 +71,7 @@ class TaskManager {
             this.removeTask(data.taskId);
         });
 
-        // sync:update события
+        // sync:update события - не показываем уведомления здесь
         socketManager.on('sync', (data) => {
             console.log('📥 Получено sync событие:', data.type, data.task?.id);
             
@@ -85,6 +86,7 @@ class TaskManager {
             } else if (data.type === 'task_deleted') {
                 this.removeTask(data.taskId);
             }
+            // Убрали уведомления для sync событий
         });
     }
 
@@ -127,9 +129,10 @@ class TaskManager {
                         if (list) list.innerHTML = '';
                     });
                     
-                    // Добавляем восстановленные задачи
+                    // Нормализуем и добавляем восстановленные задачи
                     tasks.forEach(task => {
-                        this.addTask(task);
+                        const normalizedTask = this.normalizeTaskData(task);
+                        this.addTask(normalizedTask);
                     });
                     
                     updateTaskCounts(this.tasks);
@@ -154,7 +157,7 @@ class TaskManager {
         }
     }
 
-    async createTask() {
+     async createTask() {
         const user = authManager.getCurrentUser();
         if (!user) {
             showNotification('Требуется авторизация', 'error');
@@ -177,8 +180,15 @@ class TaskManager {
 
         console.log('📤 Отправка задачи на создание:', taskData);
 
+        // Показываем уведомление сразу, так как успех придет позже через socket
+        showNotification('Создание задачи...', 'info');
+        
+        // Подавляем уведомление от сервера, так как мы уже показали свое
+        socketManager.suppressNotificationForNextEvent();
+
         socketManager.emit('task:create', taskData, (response) => {
             console.log('📥 Ответ на создание задачи:', response);
+            
             if (response && response.success) {
                 if (shareWith.trim()) {
                     const userLogins = shareWith.split(',').map(s => s.trim()).filter(s => s);
@@ -189,7 +199,9 @@ class TaskManager {
                 document.getElementById('task-description').value = '';
                 document.getElementById('task-share').value = '';
 
-                showNotification('Задача создана!', 'success');
+                // Уведомление уже будет показано через socket событие task:create
+                // поэтому здесь не показываем
+                
             } else {
                 const errorMsg = response?.error || 'Ошибка создания задачи';
                 showNotification(errorMsg, 'error');
@@ -202,6 +214,8 @@ class TaskManager {
 
         const user = authManager.getCurrentUser();
         if (!user) return;
+
+        console.log('🤝 Поделиться задачей:', taskId, 'с:', userLogins);
 
         socketManager.emit('task:share', {
             taskId,
@@ -234,27 +248,42 @@ class TaskManager {
             return;
         }
         
+        // Проверяем, не выполняется ли уже действие
+        if (this.isProcessingAction) {
+            console.log('⚠️ Действие уже выполняется');
+            return;
+        }
+        
+        this.isProcessingAction = true;
+        
         // Анимация обновления
         const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
         if (taskElement) {
             taskElement.classList.add('updating');
         }
         
+        // Показываем уведомление о начале выполнения
+        showNotification('Выполнение задачи...', 'info');
+        
         socketManager.emit('task:complete', {
             taskId: numericTaskId
         }, (response) => {
             console.log('📨 Ответ на выполнение задачи:', response);
+            
+            this.isProcessingAction = false;
             
             if (taskElement) {
                 taskElement.classList.remove('updating');
             }
             
             if (response && response.success) {
+                // Уведомление о прогрессе показываем только здесь, а не в socket событиях
                 showNotification(`Прогресс задачи: ${response.progress || 0}%`, 'info');
                 
                 if (response.task) {
                     // Используем данные от сервера
-                    this.updateTask(response.task);
+                    const normalizedTask = this.normalizeTaskData(response.task);
+                    this.updateTask(normalizedTask);
                 } else {
                     // Обновляем локально
                     const task = this.tasks.get(numericTaskId);
@@ -290,13 +319,29 @@ class TaskManager {
             return;
         }
 
+        // Проверяем, не выполняется ли уже действие
+        if (this.isProcessingAction) {
+            console.log('⚠️ Действие уже выполняется');
+            return;
+        }
+        
+        this.isProcessingAction = true;
+        
+        // Подавляем уведомление от сервера, так как мы покажем свое
+        socketManager.suppressNotificationForNextEvent();
+        
+        // Показываем уведомление сразу
+        showNotification('Удаление задачи...', 'info');
+
         socketManager.emit('task:delete', {
             taskId: Number(taskId)
         }, (response) => {
             console.log('📨 Ответ на удаление задачи:', response);
             
+            this.isProcessingAction = false;
+            
             if (response && response.success) {
-                showNotification('Задача удалена', 'info');
+                // Уведомление уже показали выше, удаляем задачу
                 this.removeTask(taskId);
             } else {
                 const errorMsg = response?.error || 'Ошибка удаления задачи';
@@ -359,9 +404,10 @@ class TaskManager {
             if (list) list.innerHTML = '';
         });
         
-        // Добавляем каждую задачу
+        // Нормализуем и добавляем каждую задачу
         tasks.forEach(task => {
-            this.addTask(task);
+            const normalizedTask = this.normalizeTaskData(task);
+            this.addTask(normalizedTask);
         });
         
         // Обновляем счетчики
@@ -371,30 +417,51 @@ class TaskManager {
         this.saveTasksToLocalStorage();
     }
 
+    // Нормализация данных задачи
+    normalizeTaskData(task) {
+        const taskId = Number(task.id);
+        const status = task.status || 'todo';
+        
+        // Автоматически устанавливаем прогресс 100% для done задач
+        let progress = task.progress || 0;
+        if (status === 'done' && progress < 100) {
+            progress = 100;
+            console.log(`✅ Установлен прогресс 100% для done задачи ${taskId}`);
+        }
+        
+        // Определяем дату выполнения для done задач
+        let completed_at = task.completed_at;
+        if (status === 'done' && !completed_at) {
+            completed_at = task.updated_at || new Date().toISOString();
+        }
+        
+        return {
+            ...task,
+            id: taskId,
+            title: task.title || 'Без названия',
+            description: task.description || '',
+            progress: progress,
+            status: status,
+            created_by_login: task.created_by_login || 'Неизвестно',
+            created_at: task.created_at || new Date().toISOString(),
+            updated_at: task.updated_at || task.created_at || new Date().toISOString(),
+            completed_at: completed_at
+        };
+    }
+
     addTask(task) {
         if (!task || !task.id) {
             console.error('❌ Некорректная задача:', task);
             return;
         }
         
-        if (this.tasks.has(task.id)) {
-            console.log('⚠️ Задача уже существует:', task.id);
+        // Нормализуем данные перед добавлением
+        const normalizedTask = this.normalizeTaskData(task);
+        
+        if (this.tasks.has(normalizedTask.id)) {
+            console.log('⚠️ Задача уже существует:', normalizedTask.id);
             return;
         }
-        
-        // Нормализуем данные задачи
-        const normalizedTask = {
-            ...task,
-            id: Number(task.id),
-            title: task.title || 'Без названия',
-            description: task.description || '',
-            progress: task.progress || 0,
-            status: task.status || 'todo',
-            created_by_login: task.created_by_login || 'Неизвестно',
-            created_at: task.created_at || new Date().toISOString(),
-            updated_at: task.updated_at || task.created_at || new Date().toISOString(),
-            completed_at: task.completed_at || null
-        };
         
         this.tasks.set(normalizedTask.id, normalizedTask);
         this.renderTask(normalizedTask);
@@ -412,7 +479,7 @@ class TaskManager {
         
         const taskId = Number(updatedTask.id);
         
-        // Объединяем с существующими данными
+        // Объединяем с существующими данными и нормализуем
         const existingTask = this.tasks.get(taskId) || {};
         const mergedTask = {
             ...existingTask,
@@ -422,21 +489,21 @@ class TaskManager {
             title: updatedTask.title || existingTask.title || 'Без названия',
             created_by_login: updatedTask.created_by_login || existingTask.created_by_login || 'Неизвестно',
             created_at: updatedTask.created_at || existingTask.created_at || new Date().toISOString(),
-            // Обновляем даты
-            updated_at: new Date().toISOString(),
-            completed_at: updatedTask.progress === 100 ? new Date().toISOString() : existingTask.completed_at
         };
         
-        this.tasks.set(mergedTask.id, mergedTask);
+        // Нормализуем финальную задачу
+        const normalizedTask = this.normalizeTaskData(mergedTask);
         
-        const existingElement = document.querySelector(`[data-task-id="${mergedTask.id}"]`);
+        this.tasks.set(normalizedTask.id, normalizedTask);
+        
+        const existingElement = document.querySelector(`[data-task-id="${normalizedTask.id}"]`);
         
         if (existingElement) {
             // Обновляем существующий элемент
-            this.updateTaskElement(existingElement, mergedTask);
+            this.updateTaskElement(existingElement, normalizedTask);
         } else {
             // Создаем новый элемент
-            this.renderTask(mergedTask);
+            this.renderTask(normalizedTask);
         }
         
         updateTaskCounts(this.tasks);
@@ -547,7 +614,10 @@ class TaskManager {
             return;
         }
         
-        const columnId = task.status === 'done' ? 'done-list' : 'todo-list';
+        // Убедимся, что задача нормализована
+        const normalizedTask = this.normalizeTaskData(task);
+        
+        const columnId = normalizedTask.status === 'done' ? 'done-list' : 'todo-list';
         const taskList = document.getElementById(columnId);
         
         if (!taskList) {
@@ -556,14 +626,14 @@ class TaskManager {
         }
 
         // Проверяем, нет ли уже такой задачи
-        const existingTask = taskList.querySelector(`[data-task-id="${task.id}"]`);
+        const existingTask = taskList.querySelector(`[data-task-id="${normalizedTask.id}"]`);
         if (existingTask) {
-            console.log('⚠️ Задача уже отображена:', task.id);
-            this.updateTaskElement(existingTask, task);
+            console.log('⚠️ Задача уже отображена:', normalizedTask.id);
+            this.updateTaskElement(existingTask, normalizedTask);
             return;
         }
 
-        const taskElement = this.createTaskElement(task);
+        const taskElement = this.createTaskElement(normalizedTask);
         taskList.appendChild(taskElement);
     }
 
@@ -696,11 +766,13 @@ class TaskManager {
 
         let html = '<h4>Задачи пользователя:</h4><ul class="profile-tasks">';
         tasks.forEach(task => {
+            // Нормализуем задачу для отображения
+            const normalizedTask = this.normalizeTaskData(task);
             html += `
                 <li>
-                    <strong>${this.escapeHtml(task.title)}</strong>
-                    <span class="task-status ${task.status}">${this.getStatusText(task.status)}</span>
-                    ${task.progress ? `<span class="task-progress">${task.progress}%</span>` : ''}
+                    <strong>${this.escapeHtml(normalizedTask.title)}</strong>
+                    <span class="task-status ${normalizedTask.status}">${this.getStatusText(normalizedTask.status)}</span>
+                    <span class="task-progress">${normalizedTask.progress}%</span>
                 </li>
             `;
         });

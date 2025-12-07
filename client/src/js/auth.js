@@ -73,11 +73,15 @@ class AuthManager {
 
         console.log('🔐 Попытка входа:', login);
         
+        // Показываем уведомление о входе
+        showNotification('Вход в систему...', 'info');
+        
         socketManager.emit('user:login', { login, password }, (response) => {
             console.log('📨 Ответ на вход:', response);
             
             if (response && response.success) {
-                showNotification('Успешный вход!', 'success');
+                // Уведомление об успешном входе покажет socket событие user:authenticated
+                // поэтому здесь не показываем
                 
                 // Сохраняем данные пользователя
                 this.currentUser = response.user;
@@ -115,6 +119,9 @@ class AuthManager {
         }
 
         console.log('📝 Попытка регистрации:', login);
+        
+        // Показываем уведомление о регистрации
+        showNotification('Регистрация...', 'info');
         
         socketManager.emit('user:register', { login, password }, (response) => {
             console.log('📨 Ответ на регистрацию:', response);
@@ -162,8 +169,6 @@ class AuthManager {
         document.getElementById('auth-page').classList.remove('active');
         document.getElementById('main-page').classList.add('active');
 
-        // Показываем уведомление
-        showNotification(`Добро пожаловать, ${user.login}!`, 'success');
     }
 
     // Загрузить задачи пользователя
@@ -182,6 +187,9 @@ class AuthManager {
 
     logout() {
         console.log('🚪 Выход из системы');
+        
+        // Показываем уведомление о выходе
+        showNotification('Выход из системы...', 'info');
         
         // Отправляем на сервер событие выхода
         socketManager.emit('user:logout', {}, (response) => {
@@ -216,7 +224,7 @@ class AuthManager {
             if (list) list.innerHTML = '';
         });
 
-        showNotification('Вы вышли из системы', 'info');
+        // Уведомление уже показали выше
     }
 
     getCurrentUser() {
