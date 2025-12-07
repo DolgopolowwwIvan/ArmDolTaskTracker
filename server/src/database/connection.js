@@ -1,6 +1,6 @@
 const { Pool } = require('pg');
 
-console.log('🔧 Подключаюсь к локальному PostgreSQL...');
+console.log('Подключаемся к локальному PostgreSQL...');
 
 const pool = new Pool({
   host: 'localhost',
@@ -10,16 +10,12 @@ const pool = new Pool({
   password: 'postgres', 
 });
 
-// Простая проверка подключения
+// Проверка подключения
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
-    console.error('❌ Ошибка подключения к PostgreSQL:', err.message);
-    console.log('💡 Проверьте что:');
-    console.log('   1. PostgreSQL запущен: sudo systemctl status postgresql');
-    console.log('   2. База существует: sudo -u postgres psql -c "\\l"');
-    console.log('   3. Можно подключиться: psql -h localhost -p 5432 -U postgres -d task_tracker');
+    console.error('Ошибка подключения к PostgreSQL:', err.message);
   } else {
-    console.log('✅ PostgreSQL подключен:', res.rows[0].now);
+    console.log('PostgreSQL подключен:', res.rows[0].now);
   }
 });
 

@@ -1,14 +1,13 @@
-/**
- * Бизнес-логика задач
- */
+// Бизнес-логика задач
+
 const db = require('../database/connection');
 const { User, Task } = require('../database/models');
 
 class TaskService {
   // Создать задачу
   static async createTask(login, taskData) {
-    console.log('🛠️ TaskService.createTask вызывается для:', login);
-    console.log('📦 Данные задачи:', taskData);
+    console.log('TaskService.createTask вызывается для:', login);
+    console.log('Данные задачи:', taskData);
     
     try {
       // Находим пользователя
@@ -24,14 +23,14 @@ class TaskService {
       }
       
       // Создаем задачу
-      console.log('📝 Создаем задачу для пользователя ID:', user.id);
+      console.log('Создаем задачу для пользователя ID:', user.id);
       const task = await Task.create(
         taskData.title,
         taskData.description || '',
         user.id
       );
       
-      console.log('✅ Задача создана успешно:', task.id);
+      console.log('Задача создана успешно:', task.id);
       
       return {
         ...task,
@@ -41,7 +40,7 @@ class TaskService {
       };
       
     } catch (error) {
-      console.error('💥 Критическая ошибка в createTask:', error);
+      console.error('Ошибка в createTask:', error);
       console.error('Stack trace:', error.stack);
       throw error;
     }
@@ -49,10 +48,10 @@ class TaskService {
 
   // Поделиться задачей
   static async shareTask(taskId, ownerLogin, sharedLogins) {
-    console.log('🤝 TaskService.shareTask вызывается:');
-    console.log('   Task ID:', taskId);
-    console.log('   Owner:', ownerLogin);
-    console.log('   Shared with:', sharedLogins);
+    console.log('TaskService.shareTask вызывается:');
+    console.log('Task ID:', taskId);
+    console.log('Owner:', ownerLogin);
+    console.log('Shared with:', sharedLogins);
     
     try {
       // Находим ID пользователей
@@ -65,9 +64,9 @@ class TaskService {
         
         if (userResult.rows[0]) {
           userIds.push(userResult.rows[0].id);
-          console.log(`✅ Пользователь ${login} найден, ID: ${userResult.rows[0].id}`);
+          console.log(`Пользователь ${login} найден, ID: ${userResult.rows[0].id}`);
         } else {
-          console.log(`⚠️ Пользователь ${login} не найден`);
+          console.log(`Пользователь ${login} не найден`);
         }
       }
 
@@ -81,7 +80,7 @@ class TaskService {
         sharedCount: userIds.length
       };
     } catch (error) {
-      console.error('💥 Ошибка в shareTask:', error);
+      console.error('Ошибка в shareTask:', error);
       throw error;
     }
   }
@@ -146,7 +145,7 @@ class TaskService {
       };
       
     } catch (error) {
-      console.error('💥 Ошибка в getProfile:', error);
+      console.error('Ошибка в getProfile:', error);
       throw error;
     }
   }
@@ -178,16 +177,16 @@ class TaskService {
         shared_tasks: shared
       };
     } catch (error) {
-      console.error('💥 Ошибка в getUserTasks:', error);
+      console.error('Ошибка в getUserTasks:', error);
       throw error;
     }
   }
 
   // Удалить задачу
   static async deleteTask(taskId, login, password) {
-    console.log('🗑️ TaskService.deleteTask вызывается:');
-    console.log('   Task ID:', taskId);
-    console.log('   Login:', login);
+    console.log('TaskService.deleteTask вызывается:');
+    console.log('Task ID:', taskId);
+    console.log('Login:', login);
     
     try {
       // Находим пользователя
@@ -201,7 +200,7 @@ class TaskService {
         throw new Error(`Пользователь "${login}" не найден`);
       }
       
-      console.log('👤 Пользователь найден, ID:', user.id);
+      console.log('Пользователь найден, ID:', user.id);
       
       // Проверяем что задача существует и принадлежит пользователю
       const taskResult = await db.query(
@@ -237,20 +236,20 @@ class TaskService {
         throw new Error(`Задача ${taskId} не найдена`);
       }
       
-      console.log('✅ Задача успешно удалена');
+      console.log('Задача успешно удалена');
       return true;
       
     } catch (error) {
-      console.error('💥 Ошибка в deleteTask:', error);
+      console.error('Ошибка в deleteTask:', error);
       throw error;
     }
   }
 
   // Выполнить задачу
   static async completeTask(taskId, login, password) {
-    console.log('✅ TaskService.completeTask вызывается:');
-    console.log('   Task ID:', taskId);
-    console.log('   Login:', login);
+    console.log('TaskService.completeTask вызывается:');
+    console.log('Task ID:', taskId);
+    console.log('Login:', login);
     
     try {
       // Находим пользователя
@@ -264,7 +263,7 @@ class TaskService {
         throw new Error(`Пользователь "${login}" не найден`);
       }
       
-      console.log('👤 Пользователь найден, ID:', user.id);
+      console.log('Пользователь найден, ID:', user.id);
       
       // Проверяем существует ли задача
       const taskExists = await db.query(
@@ -285,7 +284,7 @@ class TaskService {
         [user.id, taskId]
       );
       
-      console.log('✅ Пользователь отметил задачу как выполненную');
+      console.log('Пользователь отметил задачу как выполненную');
       
       // Проверяем, все ли выполнили задачу
       const result = await db.query(
@@ -301,7 +300,7 @@ class TaskService {
       const total = parseInt(total_users) || 0;
       const completed = parseInt(completed_users) || 0;
       
-      console.log('📊 Статистика задачи:', { total, completed });
+      console.log('Статистика задачи:', { total, completed });
       
       const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
       
@@ -318,7 +317,7 @@ class TaskService {
       
       // Если все выполнили - задача завершена
       if (total === completed && total > 0) {
-        console.log('🎯 Все выполнили задачу, отмечаем как done');
+        console.log('Все выполнили задачу, отмечаем как done');
         await db.query(
           'UPDATE tasks SET status = $1, updated_at = NOW() WHERE id = $2',
           ['done', taskId]
@@ -356,7 +355,7 @@ class TaskService {
       };
       
     } catch (error) {
-      console.error('💥 Ошибка в completeTask:', error);
+      console.error('Ошибка в completeTask:', error);
       throw error;
     }
   }

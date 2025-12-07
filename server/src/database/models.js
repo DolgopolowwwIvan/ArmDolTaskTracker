@@ -1,6 +1,5 @@
-/**
- * Модели и SQL-запросы
- */
+// Модели и SQL-запросы
+
 const db = require('./connection');
 
 // Создание таблиц (выполнить один раз при первом запуске)
@@ -41,7 +40,7 @@ async function initDatabase() {
       )
     `);
 
-    console.log('✅ Таблицы созданы/проверены');
+    console.log('Таблицы созданы/проверены');
   } catch (error) {
     console.error('Ошибка создания таблиц:', error);
   }

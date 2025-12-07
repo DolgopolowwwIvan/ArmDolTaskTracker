@@ -1,12 +1,11 @@
-/**
- * Обработчики WebSocket событий
- */
+// Обработчики WebSocket событий
+
 const TaskService = require('../services/task-service');
 const { User } = require('../database/models');
 const db = require('../database/connection');
 
 // Храним подключенных пользователей
-const connectedUsers = new Map(); // socket.id -> login
+const connectedUsers = new Map();
 
 function initializeSocketHandlers(io, socket) {
   console.log(`Новое подключение: ${socket.id}`);
@@ -14,7 +13,7 @@ function initializeSocketHandlers(io, socket) {
   // Регистрация - обработка события user:register
   socket.on('user:register', async (data, callback) => {
     try {
-      console.log('📝 Событие регистрации:', data);
+      console.log('Событие регистрации:', data);
       const { login, password } = data;
       const user = await User.register(login, password);
       
@@ -27,9 +26,9 @@ function initializeSocketHandlers(io, socket) {
       // Отправляем подтверждение аутентификации
       socket.emit('user:authenticated', { user });
       
-      console.log(`✅ Зарегистрирован: ${login}`);
+      console.log(`Зарегистрирован: ${login}`);
     } catch (error) {
-      console.error('❌ Ошибка регистрации:', error.message);
+      console.error('Ошибка регистрации:', error.message);
       if (typeof callback === 'function') {
         callback({ success: false, error: error.message });
       }
@@ -39,7 +38,7 @@ function initializeSocketHandlers(io, socket) {
   // Вход - обработка события user:login
   socket.on('user:login', async (data, callback) => {
     try {
-      console.log('🔐 Событие входа:', data);
+      console.log('Событие входа:', data);
       const { login, password } = data;
       const user = await User.login(login, password);
       
@@ -53,14 +52,14 @@ function initializeSocketHandlers(io, socket) {
         // Отправляем подтверждение аутентификации
         socket.emit('user:authenticated', { user });
         
-        console.log(`✅ Вошел: ${login}`);
+        console.log(`Вошел: ${login}`);
       } else {
         if (typeof callback === 'function') {
           callback({ success: false, error: 'Неверный логин или пароль' });
         }
       }
     } catch (error) {
-      console.error('❌ Ошибка входа:', error.message);
+      console.error('Ошибка входа:', error.message);
       if (typeof callback === 'function') {
         callback({ success: false, error: error.message });
       }
@@ -70,7 +69,7 @@ function initializeSocketHandlers(io, socket) {
   // Восстановление сессии
   socket.on('user:restore', async (data, callback) => {
     try {
-      console.log('🔄 Восстановление сессии:', data);
+      console.log('Восстановление сессии:', data);
       const { login } = data;
       const user = await User.getProfile(login);
       
@@ -84,14 +83,14 @@ function initializeSocketHandlers(io, socket) {
         // Отправляем подтверждение
         socket.emit('user:restored', { user });
         
-        console.log(`✅ Сессия восстановлена для: ${login}`);
+        console.log(`Сессия восстановлена для: ${login}`);
       } else {
         if (typeof callback === 'function') {
           callback({ success: false, error: 'Пользователь не найден' });
         }
       }
     } catch (error) {
-      console.error('❌ Ошибка восстановления сессии:', error.message);
+      console.error('Ошибка восстановления сессии:', error.message);
       if (typeof callback === 'function') {
         callback({ success: false, error: error.message });
       }
@@ -105,8 +104,8 @@ function initializeSocketHandlers(io, socket) {
             throw new Error('Требуется авторизация');
         }
 
-        console.log('📋 Создание задачи пользователем:', userLogin);
-        console.log('📦 Данные задачи:', data);
+        console.log('Создание задачи пользователем:', userLogin);
+        console.log('Данные задачи:', data);
 
         const task = await TaskService.createTask(userLogin, {
             ...data
@@ -126,13 +125,10 @@ function initializeSocketHandlers(io, socket) {
             callback({ success: true, task });
         }
 
-        console.log(`✅ Задача создана: ${task.title} пользователем ${userLogin}`);
-        
-        // УБРАЛИ уведомление от сервера
-        // socket.emit('notification', { message: `Задача "${task.title}" создана`, type: 'success' });
+        console.log(`Задача создана: ${task.title} пользователем ${userLogin}`);
         
     } catch (error) {
-        console.error('❌ Ошибка создания задачи:', error.message);
+        console.error('Ошибка создания задачи:', error.message);
         if (typeof callback === 'function') {
             callback({ success: false, error: error.message });
         }
@@ -167,35 +163,33 @@ function initializeSocketHandlers(io, socket) {
         callback({ success: true, ...result });
       }
 
-      console.log(`✅ Задача ${data.taskId} поделена`);
+      console.log(`Задача ${data.taskId} поделена`);
     } catch (error) {
-      console.error('❌ Ошибка деления задачи:', error.message);
+      console.error('Ошибка деления задачи:', error.message);
       if (typeof callback === 'function') {
         callback({ success: false, error: error.message });
       }
     }
   });
 
-  // В обработчике task:complete убрать уведомление:
-
 socket.on('task:complete', async (data, callback) => {
     try {
-        console.log('✅ Сервер: Выполнение задачи...');
-        console.log('📦 Данные:', data);
+        console.log('Сервер: Выполнение задачи...');
+        console.log('Данные:', data);
         
         // Получаем логин из connectedUsers
         const userLogin = connectedUsers.get(socket.id);
-        console.log('👤 Пользователь из connectedUsers:', userLogin);
+        console.log('Пользователь из connectedUsers:', userLogin);
         
         if (!userLogin) {
             throw new Error('Требуется авторизация');
         }
         
-        console.log('🛠️ Вызываем TaskService.completeTask...');
+        console.log('Вызываем TaskService.completeTask...');
         const result = await TaskService.completeTask(
             data.taskId,
             userLogin,
-            '123' // упрощенная схема
+            '123'
         );
 
         // Отправляем обновление прогресса всем
@@ -216,11 +210,8 @@ socket.on('task:complete', async (data, callback) => {
 
         console.log(`✅ Прогресс задачи ${data.taskId}: ${result.progress}%`);
         
-        // УБРАЛИ уведомление от сервера
-        // socket.emit('notification', { message: `Прогресс задачи: ${result.progress}%`, type: 'info' });
-        
     } catch (error) {
-        console.error('❌ Ошибка выполнения задачи:', error.message);
+        console.error('Ошибка выполнения задачи:', error.message);
         console.error('Stack:', error.stack);
         
         if (typeof callback === 'function') {
@@ -229,26 +220,24 @@ socket.on('task:complete', async (data, callback) => {
     }
 });
 
-  // В обработчике task:delete убрать уведомление:
-
 socket.on('task:delete', async (data, callback) => {
     try {
-        console.log('🗑️ Сервер: Удаление задачи...');
-        console.log('📦 Данные:', data);
+        console.log('Сервер: Удаление задачи...');
+        console.log('Данные:', data);
         
         // Получаем логин из connectedUsers
         const userLogin = connectedUsers.get(socket.id);
-        console.log('👤 Пользователь:', userLogin);
+        console.log('Пользователь:', userLogin);
         
         if (!userLogin) {
             throw new Error('Требуется авторизация');
         }
         
-        console.log('🛠️ Вызываем TaskService.deleteTask...');
+        console.log('Вызываем TaskService.deleteTask...');
         const deleted = await TaskService.deleteTask(
             data.taskId,
             userLogin,
-            '123' // упрощенная схема
+            '123'
         );
 
         // Уведомляем всех клиентов об удалении
@@ -265,13 +254,10 @@ socket.on('task:delete', async (data, callback) => {
             callback({ success: true, taskId: data.taskId });
         }
 
-        console.log(`✅ Задача ${data.taskId} удалена пользователем ${userLogin}`);
-        
-        // УБРАЛИ уведомление от сервера
-        // socket.emit('notification', { message: 'Задача удалена', type: 'info' });
+        console.log(`Задача ${data.taskId} удалена пользователем ${userLogin}`);
         
     } catch (error) {
-        console.error('❌ Ошибка удаления задачи:', error.message);
+        console.error('Ошибка удаления задачи:', error.message);
         console.error('Stack:', error.stack);
         
         if (typeof callback === 'function') {
@@ -283,14 +269,14 @@ socket.on('task:delete', async (data, callback) => {
   // Посмотреть профиль - обработка события profile:view
   socket.on('profile:view', async (data, callback) => {
     try {
-      console.log('👤 Просмотр профиля:', data);
+      console.log('Просмотр профиля:', data);
       const profile = await TaskService.getProfile(data.login);
       
       if (typeof callback === 'function') {
         callback({ success: true, profile });
       }
     } catch (error) {
-      console.error('❌ Ошибка получения профиля:', error.message);
+      console.error('Ошибка получения профиля:', error.message);
       if (typeof callback === 'function') {
         callback({ success: false, error: error.message });
       }
@@ -305,7 +291,7 @@ socket.on('task:delete', async (data, callback) => {
         throw new Error('Требуется авторизация');
       }
 
-      console.log('📋 Получение задач для:', userLogin);
+      console.log('Получение задач для:', userLogin);
 
       // Находим пользователя
       const userResult = await db.query(
@@ -361,10 +347,10 @@ socket.on('task:delete', async (data, callback) => {
         });
       }
 
-      console.log(`✅ Загружено ${tasks.length} задач для ${userLogin}`);
+      console.log(`Загружено ${tasks.length} задач для ${userLogin}`);
 
     } catch (error) {
-      console.error('❌ Ошибка получения задач:', error.message);
+      console.error('Ошибка получения задач:', error.message);
       if (typeof callback === 'function') {
         callback({ success: false, error: error.message });
       }
@@ -377,7 +363,7 @@ socket.on('task:delete', async (data, callback) => {
       const userLogin = connectedUsers.get(socket.id);
       if (userLogin) {
         connectedUsers.delete(socket.id);
-        console.log(`🚪 Выход: ${userLogin}`);
+        console.log(`Выход: ${userLogin}`);
       }
       
       if (typeof callback === 'function') {
@@ -395,16 +381,16 @@ socket.on('task:delete', async (data, callback) => {
   socket.on('disconnect', () => {
     const login = connectedUsers.get(socket.id);
     if (login) {
-      console.log(`❌ Отключился: ${login}`);
+      console.log(`Отключился: ${login}`);
       connectedUsers.delete(socket.id);
     } else {
-      console.log(`❌ Отключился анонимный: ${socket.id}`);
+      console.log(`Отключился анонимный: ${socket.id}`);
     }
   });
 
   // Ping для тестирования
   socket.on('ping', (data, callback) => {
-    console.log('🏓 Ping получен:', data);
+    console.log('Ping получен:', data);
     if (typeof callback === 'function') {
       callback({ success: true, message: 'pong', serverTime: Date.now() });
     }
