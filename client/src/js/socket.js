@@ -8,42 +8,48 @@ class SocketManager {
         this.user = null;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
-        this.suppressNotifications = false; // Флаг для подавления уведомлений
+        this.suppressNotifications = false;
+        
+        // ⚠️ ИЗМЕНИТЕ ЭТУ СТРОКУ НА ВАШ ВНЕШНИЙ АДРЕС ⚠️
+        this.SERVER_URL = 'http://217.71.129.139:5958'; // Ваш внешний IP с портом
     }
 
     connect() {
         if (this.socket && this.connected) return;
 
-        console.log('🔌 Подключение к WebSocket...');
-        this.socket = io('ws://localhost:3000', {
+        console.log('🔌 Подключение к WebSocket:', this.SERVER_URL);
+        
+        // ⚠️ ИСПОЛЬЗУЙТЕ HTTP ДЛЯ SOCKET.IO ⚠️
+        this.socket = io(this.SERVER_URL, {
             transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: this.maxReconnectAttempts,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
             timeout: 20000,
-            autoConnect: true
+            autoConnect: true,
+            forceNew: true, // Важно для переподключений
+            path: '/socket.io/' // Стандартный путь для Socket.IO
         });
 
         this.setupEventListeners();
     }
 
-  setupEventListeners() {
+    setupEventListeners() {
         this.socket.on('connect', () => {
             console.log('✅ WebSocket подключен:', this.socket.id);
+            console.log('📡 URL сервера:', this.SERVER_URL);
             this.connected = true;
             this.reconnectAttempts = 0;
             this.emitEvent('connected');
             this.updateConnectionStatus(true);
             
-            // Проверяем, есть ли сохраненная сессия
             const savedUser = localStorage.getItem('currentUser');
             if (savedUser) {
                 try {
                     const user = JSON.parse(savedUser);
                     if (user && user.login) {
                         console.log('🔄 Восстановление сессии для:', user.login);
-                        // Отправляем запрос на восстановление сессии
                         this.emit('user:restore', { login: user.login });
                     }
                 } catch (e) {
@@ -59,18 +65,26 @@ class SocketManager {
             this.updateConnectionStatus(false);
             
             if (reason === 'io server disconnect') {
-                // Сервер отключил нас, нужно переподключиться
                 this.socket.connect();
             }
         });
 
         this.socket.on('connect_error', (error) => {
             this.reconnectAttempts++;
-            console.error('❌ Ошибка подключения WebSocket:', error.message);
+            console.error('❌ Ошибка подключения WebSocket к', this.SERVER_URL, ':', error.message);
             console.log(`Попытка переподключения: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
             
+            // Диагностика ошибок
+            if (error.message.includes('Failed to fetch')) {
+                console.error('⚠️ Сервер не отвечает на', this.SERVER_URL);
+            } else if (error.message.includes('xhr poll error')) {
+                console.error('⚠️ Проблема с CORS или настройками сервера');
+            } else if (error.message.includes('timeout')) {
+                console.error('⚠️ Таймаут подключения к серверу');
+            }
+            
             if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-                this.showNotification('Не удалось подключиться к серверу', 'error');
+                this.showNotification(`Не удалось подключиться к ${this.SERVER_URL}`, 'error');
             } else {
                 this.showNotification(`Попытка подключения ${this.reconnectAttempts}...`, 'warning');
             }
@@ -90,24 +104,15 @@ class SocketManager {
             this.showNotification('Не удалось восстановить соединение', 'error');
         });
 
-        // Обработка событий задач - УБРАЛИ УВЕДОМЛЕНИЯ ИЗ sync:update
         this.socket.on('sync:update', (data) => {
             console.log('🔄 Real-time обновление:', data.type);
             this.emitEvent('sync', data);
-            
-            // Убрали уведомления здесь, так как они уже показываются на фронтенде
-            // if (data.type === 'task_created') {
-            //     this.showNotification(`Новая задача: ${data.task?.title}`, 'info');
-            // } else if (data.type === 'task_progress') {
-            //     this.showNotification(`Обновлен прогресс задачи`, 'info');
-            // }
         });
 
         this.socket.on('task:create', (task) => {
             console.log('📋 Новая задача от сервера:', task.id);
             this.emitEvent('taskCreated', task);
             
-            // Показываем уведомление только если мы не создавали задачу сами
             if (!this.suppressNotifications) {
                 this.showNotification(`Задача создана: ${task.title}`, 'success');
             }
@@ -123,31 +128,26 @@ class SocketManager {
             console.log('🗑️ Задача удалена сервером:', data.taskId);
             this.emitEvent('taskDeleted', data);
             
-            // Показываем уведомление только если мы не удаляли задачу сами
             if (!this.suppressNotifications) {
                 this.showNotification('Задача удалена', 'info');
             }
             this.suppressNotifications = false;
         });
 
-        // События авторизации
         this.socket.on('user:authenticated', (data) => {
             console.log('🔐 Пользователь аутентифицирован:', data.user?.login);
             this.user = data.user;
             this.emitEvent('authSuccess', data.user);
             this.showNotification(`Добро пожаловать, ${data.user?.login}!`, 'success');
             
-            // После аутентификации запрашиваем задачи пользователя
             if (data.user && data.user.login) {
                 console.log('🔄 Запрашиваем задачи после аутентификации...');
                 
-                // Вариант 1: Через profile:view
                 this.emit('profile:view', { login: data.user.login }, (response) => {
                     if (response && response.success && response.profile) {
                         console.log('✅ Задачи получены через profile:view');
                         this.emitEvent('user:tasks', { tasks: response.profile.tasks || [] });
                     } else {
-                        // Вариант 2: Через get_user_tasks
                         this.emit('get_user_tasks', { login: data.user.login }, (response2) => {
                             if (response2 && response2.success && response2.tasks) {
                                 console.log('✅ Задачи получены через get_user_tasks');
@@ -184,7 +184,6 @@ class SocketManager {
             this.showNotification(`Ошибка: ${error.message || error}`, 'error');
         });
 
-        // Событие для загрузки задач
         this.socket.on('user:tasks', (data) => {
             console.log('📥 Получены задачи пользователя:', data.tasks?.length);
             this.emitEvent('user:tasks', data);
@@ -199,10 +198,8 @@ class SocketManager {
     }
 
     emit(event, data, callback) {
-        // Сбрасываем флаг подавления уведомлений перед отправкой
         this.suppressNotifications = false;
         
-        // Для событий авторизации позволяем отправлять даже если нет подключения
         if (!this.connected && !['user:login', 'user:register', 'user:restore'].includes(event)) {
             this.showNotification('Нет подключения к серверу', 'error');
             console.error('❌ WebSocket не подключен для события:', event);
@@ -223,11 +220,9 @@ class SocketManager {
         }
     }
 
-    // Добавляем метод для подавления уведомлений
     suppressNotificationForNextEvent() {
         this.suppressNotifications = true;
     }
-    
 
     on(event, callback) {
         if (!this.listeners.has(event)) {
@@ -235,8 +230,6 @@ class SocketManager {
         }
         this.listeners.get(event).push(callback);
         
-        // Если сокет уже подключен и мы подписываемся на события, которые уже могли произойти
-        // например, 'connected'
         if (this.connected && event === 'connected') {
             setTimeout(() => callback(), 0);
         }
@@ -269,14 +262,12 @@ class SocketManager {
 
         if (connected) {
             statusEl.className = 'status-online';
-            statusEl.innerHTML = '<i class="fas fa-circle"></i> Подключен';
+            statusEl.innerHTML = `<i class="fas fa-circle"></i> Подключен к ${this.SERVER_URL}`;
         } else {
             statusEl.className = 'status-offline';
             statusEl.innerHTML = '<i class="fas fa-circle"></i> Не подключен';
         }
     }
-
-    // Убран метод updateOnlineCount
 
     showNotification(message, type = 'info') {
         this.emitEvent('notification', { message, type });
@@ -300,7 +291,6 @@ class SocketManager {
         return this.user;
     }
     
-    // Проверить состояние соединения
     checkConnection() {
         return new Promise((resolve) => {
             if (this.isConnected()) {
@@ -313,7 +303,6 @@ class SocketManager {
                     }
                 }, 100);
                 
-                // Таймаут 5 секунд
                 setTimeout(() => {
                     clearInterval(checkInterval);
                     resolve(false);
@@ -322,7 +311,6 @@ class SocketManager {
         });
     }
     
-    // Подождать подключения
     waitForConnection() {
         return new Promise((resolve) => {
             if (this.isConnected()) {
@@ -343,6 +331,8 @@ export const socketManager = new SocketManager();
 // Автоматическое подключение при загрузке
 window.addEventListener('load', () => {
     setTimeout(() => {
+        console.log('🌐 ArmDol Task Tracker запускается...');
+        console.log('📡 Адрес сервера:', socketManager.SERVER_URL);
         socketManager.connect();
     }, 100);
 });
@@ -354,3 +344,11 @@ window.addEventListener('focus', () => {
         socketManager.connect();
     }
 });
+
+// Отображение информации о сервере при загрузке
+console.log(`
+🌐 ArmDol Task Tracker Client
+📡 Сервер: http://217.71.129.139:5958
+🔗 WebSocket: ws://217.71.129.139:5958/socket.io/
+⏰ ${new Date().toLocaleString()}
+`);
