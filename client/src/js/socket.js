@@ -8,14 +8,23 @@ class SocketManager {
         this.user = null;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
-        this.suppressNotifications = false; // Флаг для подавления уведомлений
+        this.suppressNotifications = false;
     }
 
     connect() {
         if (this.socket && this.connected) return;
 
         console.log('🔌 Подключение к WebSocket...');
-        this.socket = io('ws://localhost:3000', {
+        
+        // ИСПРАВЛЕНО: Используем текущий хост вместо localhost
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.hostname;
+        const port = window.location.port ? `:${window.location.port}` : '';
+        const wsUrl = `${protocol}//${host}${port}`;
+        
+        console.log(`Подключение к ${wsUrl}`);
+        
+        this.socket = io(wsUrl, {
             transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: this.maxReconnectAttempts,
@@ -340,14 +349,12 @@ class SocketManager {
 
 export const socketManager = new SocketManager();
 
-// Автоматическое подключение при загрузке
 window.addEventListener('load', () => {
     setTimeout(() => {
         socketManager.connect();
     }, 100);
 });
 
-// Автоматическое переподключение при потере фокуса/возвращении
 window.addEventListener('focus', () => {
     if (!socketManager.isConnected()) {
         console.log('🔄 Переподключение при возвращении на страницу...');
