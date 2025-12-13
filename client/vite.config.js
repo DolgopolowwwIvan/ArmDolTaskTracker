@@ -4,22 +4,13 @@ import path from 'path';
 export default defineConfig({
     root: process.cwd(),
     
-    // ИСПРАВЛЕНО: Для продакшена используем base и правильные настройки
-    base: process.env.NODE_ENV === 'production' ? '/' : './',
+    // Указываем явно корневую директорию
+    base: './',
     
     server: {
         port: 5173,
         host: true,
-        open: false, // Закрываем автоматическое открытие браузера на сервере
-        
-        // Прокси только для разработки
-        proxy: process.env.NODE_ENV === 'development' ? {
-            '/socket.io': {
-                target: 'http://localhost:3000',
-                ws: true,
-                changeOrigin: true
-            }
-        } : undefined
+        open: false,
     },
     
     resolve: {
@@ -31,16 +22,17 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         emptyOutDir: true,
+        // Явно указываем входную точку
         rollupOptions: {
-            input: {
-                main: path.resolve(__dirname, 'index.html')
+            input: path.resolve(__dirname, 'index.html'),
+            output: {
+                // Это важно для правильных путей
+                assetFileNames: 'assets/[name][extname]',
+                chunkFileNames: 'assets/[name]-[hash].js',
+                entryFileNames: 'assets/[name]-[hash].js'
             }
         },
-        // Оптимизация для продакшена
         minify: 'terser',
         sourcemap: false
-    },
-    
-    // Для продакшена убираем подробные логи
-    logLevel: process.env.NODE_ENV === 'production' ? 'warn' : 'info'
+    }
 });
